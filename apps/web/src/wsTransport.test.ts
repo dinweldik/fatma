@@ -190,4 +190,25 @@ describe("WsTransport", () => {
     expect(socket.url).toBe("wss://example.ts.net/");
     transport.dispose();
   });
+
+  it("rewrites localhost hosts to the current origin when the browser is remote", () => {
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: {
+        location: {
+          protocol: "https:",
+          host: "example.ts.net:5000",
+          hostname: "example.ts.net",
+          port: "5000",
+        },
+        desktopBridge: undefined,
+      },
+    });
+
+    const transport = new WsTransport("ws://localhost:3773");
+    const socket = getSocket();
+
+    expect(socket.url).toBe("wss://example.ts.net:3773/");
+    transport.dispose();
+  });
 });

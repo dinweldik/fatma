@@ -23,6 +23,17 @@ interface WsRequestEnvelope {
   };
 }
 
+function isLocalhostHostname(hostname: string): boolean {
+  const normalized = hostname.trim().toLowerCase();
+  if (normalized.length === 0) return false;
+  if (normalized === "localhost") return true;
+  if (normalized === "0.0.0.0") return true;
+  if (normalized === "::1") return true;
+  // Treat loopback IPv4 ranges as local.
+  if (normalized.startsWith("127.")) return true;
+  return false;
+}
+
 function normalizeWsUrlForPage(input: string): string {
   if (typeof window === "undefined") {
     return input;
@@ -30,11 +41,22 @@ function normalizeWsUrlForPage(input: string): string {
 
   try {
     const parsed = new URL(input, window.location.origin);
-    if (window.location.protocol === "https:" && parsed.protocol === "ws:") {
+    const pageProtocol = window.location.protocol;
+
+    if (pageProtocol === "https:" && parsed.protocol === "ws:") {
       parsed.protocol = "wss:";
-    } else if (window.location.protocol === "http:" && parsed.protocol === "wss:") {
+    } else if (pageProtocol === "http:" && parsed.protocol === "wss:") {
       parsed.protocol = "ws:";
     }
+
+    if (
+      pageProtocol === "https:" &&
+      isLocalhostHostname(parsed.hostname) &&
+      !isLocalhostHostname(window.location.hostname)
+    ) {
+      parsed.hostname = window.location.hostname;
+    }
+
     return parsed.toString();
   } catch {
     return input;
