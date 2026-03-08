@@ -27,14 +27,25 @@ import { isElectron } from "../env";
 import { APP_BASE_NAME } from "../branding";
 import { newCommandId, newProjectId, newThreadId } from "../lib/utils";
 import { useStore } from "../store";
-import { isChatNewLocalShortcut, isChatNewShortcut, shortcutLabelForCommand } from "../keybindings";
+import {
+  isChatNewLocalShortcut,
+  isChatNewShortcut,
+  resolveShortcutCommand,
+  shortcutLabelForCommand,
+} from "../keybindings";
+import {
+  closeAllProjectShells,
+  createProjectShell,
+  defaultProjectShellConfig,
+  ensureProjectShell,
+} from "../projectShellRunner";
+import { useProjectShellStore, selectProjectShellCollection } from "../projectShellStore";
 import { type Thread } from "../types";
 import { derivePendingApprovals } from "../session-logic";
 import { gitRemoveWorktreeMutationOptions, gitStatusQueryOptions } from "../lib/gitReactQuery";
 import { serverConfigQueryOptions } from "../lib/serverReactQuery";
 import { readNativeApi } from "../nativeApi";
 import { type DraftThreadEnvMode, useComposerDraftStore } from "../composerDraftStore";
-import { selectThreadTerminalState, useTerminalStateStore } from "../terminalStateStore";
 import { onServerWelcome } from "../wsNativeApi";
 import { toastManager } from "./ui/toast";
 import {
@@ -111,12 +122,6 @@ interface ThreadStatusPill {
   pulse: boolean;
 }
 
-interface TerminalStatusIndicator {
-  label: "Terminal process running";
-  colorClass: string;
-  pulse: boolean;
-}
-
 interface PrStatusIndicator {
   label: "PR open" | "PR closed" | "PR merged";
   colorClass: string;
@@ -175,19 +180,6 @@ function threadStatusPill(thread: Thread, hasPendingApprovals: boolean): ThreadS
   }
 
   return null;
-}
-
-function terminalStatusFromRunningIds(
-  runningTerminalIds: string[],
-): TerminalStatusIndicator | null {
-  if (runningTerminalIds.length === 0) {
-    return null;
-  }
-  return {
-    label: "Terminal process running",
-    colorClass: "text-teal-600 dark:text-teal-300/90",
-    pulse: true,
-  };
 }
 
 function prStatusIndicator(pr: ThreadPr): PrStatusIndicator | null {
@@ -287,8 +279,7 @@ export default function Sidebar() {
     (store) => store.getDraftThreadByProjectId,
   );
   const getDraftThread = useComposerDraftStore((store) => store.getDraftThread);
-  const terminalStateByThreadId = useTerminalStateStore((state) => state.terminalStateByThreadId);
-  const clearTerminalState = useTerminalStateStore((state) => state.clearTerminalState);
+  const shellStateByProjectId = useProjectShellStore((state) => state.shellStateByProjectId);
   const setProjectDraftThreadId = useComposerDraftStore((store) => store.setProjectDraftThreadId);
   const setDraftThreadContext = useComposerDraftStore((store) => store.setDraftThreadContext);
   const clearProjectDraftThreadId = useComposerDraftStore(
@@ -302,6 +293,13 @@ export default function Sidebar() {
   const routeThreadId = useParams({
     strict: false,
     select: (params) => (params.threadId ? ThreadId.makeUnsafe(params.threadId) : null),
+  });
+  const routeProjectShell = useParams({
+    strict: false,
+    select: (params) => ({
+      projectId: params.projectId ? ProjectId.makeUnsafe(params.projectId) : null,
+      shellId: params.shellId ?? null,
+    }),
   });
   const { data: keybindings = EMPTY_KEYBINDINGS } = useQuery({
     ...serverConfigQueryOptions(),
@@ -393,8 +391,7 @@ export default function Sidebar() {
         directoryPath: projectBrowserCurrentPath,
       });
     },
-    enabled:
-      addingProject && projectBrowserRootPath !== null && projectBrowserCurrentPath !== null,
+    enabled: addingProject && projectBrowserRootPath !== null && projectBrowserCurrentPath !== null,
   });
   const createProjectDirectoryMutation = useMutation({
     mutationFn: async (name: string) => {
@@ -644,12 +641,7 @@ export default function Sidebar() {
           error instanceof Error ? error.message : "An error occurred while creating the folder.",
       });
     }
-  }, [
-    createProjectDirectoryMutation,
-    newProjectFolderName,
-    projectBrowserRootPath,
-    queryClient,
-  ]);
+  }, [createProjectDirectoryMutation, newProjectFolderName, projectBrowserRootPath, queryClient]);
 
   const cancelRename = useCallback(() => {
     setRenamingThreadId(null);
@@ -802,7 +794,6 @@ export default function Sidebar() {
       });
       clearComposerDraftForThread(threadId);
       clearProjectDraftThreadById(thread.projectId, thread.id);
-      clearTerminalState(threadId);
       if (shouldNavigateToFallback) {
         if (fallbackThreadId) {
           void navigate({
@@ -844,7 +835,6 @@ export default function Sidebar() {
       appSettings.confirmThreadDelete,
       clearComposerDraftForThread,
       clearProjectDraftThreadById,
-      clearTerminalState,
       markThreadUnread,
       navigate,
       projects,
@@ -883,6 +873,7 @@ export default function Sidebar() {
       if (!confirmed) return;
 
       try {
+        await closeAllProjectShells(projectId).catch(() => undefined);
         const projectDraftThread = getDraftThreadByProjectId(projectId);
         if (projectDraftThread) {
           clearComposerDraftForThread(projectDraftThread.threadId);
@@ -910,6 +901,38 @@ export default function Sidebar() {
       projects,
       threads,
     ],
+  );
+
+  const openProjectShell = useCallback(
+    async (projectId: ProjectId) => {
+      const project = projects.find((entry) => entry.id === projectId);
+      if (!project) return;
+      const shell = ensureProjectShell(project.id, defaultProjectShellConfig(project));
+      await navigate({
+        to: "/shells/$projectId/$shellId",
+        params: {
+          projectId: project.id,
+          shellId: shell.id,
+        },
+      });
+    },
+    [navigate, projects],
+  );
+
+  const createAndOpenProjectShell = useCallback(
+    async (projectId: ProjectId) => {
+      const project = projects.find((entry) => entry.id === projectId);
+      if (!project) return;
+      const shell = createProjectShell(project.id, defaultProjectShellConfig(project));
+      await navigate({
+        to: "/shells/$projectId/$shellId",
+        params: {
+          projectId: project.id,
+          shellId: shell.id,
+        },
+      });
+    },
+    [navigate, projects],
   );
 
   useEffect(() => {
@@ -943,6 +966,45 @@ export default function Sidebar() {
       window.removeEventListener("keydown", onWindowKeyDown);
     };
   }, [getDraftThread, handleNewThread, keybindings, projects, routeThreadId, threads]);
+
+  useEffect(() => {
+    const onTerminalToggleShortcut = (event: KeyboardEvent) => {
+      if (event.defaultPrevented) return;
+      const activeThread = routeThreadId
+        ? threads.find((thread) => thread.id === routeThreadId)
+        : undefined;
+      const projectId =
+        routeProjectShell.projectId ?? activeThread?.projectId ?? projects[0]?.id ?? null;
+      if (!projectId) return;
+      const command = resolveShortcutCommand(event, keybindings, {
+        context: {
+          terminalFocus: false,
+          terminalOpen: false,
+        },
+      });
+      if (command !== "terminal.toggle") return;
+      event.preventDefault();
+      event.stopPropagation();
+      void openProjectShell(projectId);
+    };
+
+    window.addEventListener("keydown", onTerminalToggleShortcut);
+    return () => {
+      window.removeEventListener("keydown", onTerminalToggleShortcut);
+    };
+  }, [
+    keybindings,
+    openProjectShell,
+    projects,
+    routeProjectShell.projectId,
+    routeThreadId,
+    threads,
+  ]);
+
+  const shellCreateShortcutLabel = useMemo(
+    () => shortcutLabelForCommand(keybindings, "terminal.new"),
+    [keybindings],
+  );
 
   useEffect(() => {
     if (!isElectron) return;
@@ -1139,6 +1201,7 @@ export default function Sidebar() {
                   if (byDate !== 0) return byDate;
                   return b.id.localeCompare(a.id);
                 });
+              const projectShells = selectProjectShellCollection(shellStateByProjectId, project.id);
               const isThreadListExpanded = expandedThreadListsByProject.has(project.id);
               const hasHiddenThreads = projectThreads.length > THREAD_PREVIEW_LIMIT;
               const visibleThreads =
@@ -1222,10 +1285,6 @@ export default function Sidebar() {
                             pendingApprovalByThreadId.get(thread.id) === true,
                           );
                           const prStatus = prStatusIndicator(prByThreadId.get(thread.id) ?? null);
-                          const terminalStatus = terminalStatusFromRunningIds(
-                            selectThreadTerminalState(terminalStateByThreadId, thread.id)
-                              .runningTerminalIds,
-                          );
 
                           return (
                             <SidebarMenuSubItem key={thread.id} className="w-full">
@@ -1330,18 +1389,6 @@ export default function Sidebar() {
                                   )}
                                 </div>
                                 <div className="ml-auto flex shrink-0 items-center gap-1.5">
-                                  {terminalStatus && (
-                                    <span
-                                      role="img"
-                                      aria-label={terminalStatus.label}
-                                      title={terminalStatus.label}
-                                      className={`inline-flex items-center justify-center ${terminalStatus.colorClass}`}
-                                    >
-                                      <TerminalIcon
-                                        className={`size-3 ${terminalStatus.pulse ? "animate-pulse" : ""}`}
-                                      />
-                                    </span>
-                                  )}
                                   <span
                                     className={`text-[10px] ${
                                       isActive ? "text-foreground/65" : "text-muted-foreground/40"
@@ -1383,6 +1430,99 @@ export default function Sidebar() {
                             </SidebarMenuSubButton>
                           </SidebarMenuSubItem>
                         )}
+
+                        <div className="px-2 pt-2 pb-1 text-[10px] font-semibold tracking-[0.14em] text-muted-foreground/60 uppercase">
+                          Shells
+                        </div>
+
+                        {projectShells.shells.map((shell) => {
+                          const isActive =
+                            routeProjectShell.projectId === project.id &&
+                            routeProjectShell.shellId === shell.id;
+                          const isRunning = projectShells.runningShellIds.includes(shell.id);
+
+                          return (
+                            <SidebarMenuSubItem key={shell.id} className="w-full">
+                              <SidebarMenuSubButton
+                                render={<div role="button" tabIndex={0} />}
+                                size="sm"
+                                isActive={isActive}
+                                className={`h-7 w-full translate-x-0 cursor-default justify-start px-2 text-left hover:bg-accent hover:text-foreground ${
+                                  isActive
+                                    ? "bg-accent/85 text-foreground font-medium ring-1 ring-border/70 dark:bg-accent/55 dark:ring-border/50"
+                                    : "text-muted-foreground"
+                                }`}
+                                onClick={() => {
+                                  void navigate({
+                                    to: "/shells/$projectId/$shellId",
+                                    params: {
+                                      projectId: project.id,
+                                      shellId: shell.id,
+                                    },
+                                  });
+                                }}
+                                onKeyDown={(event) => {
+                                  if (event.key !== "Enter" && event.key !== " ") return;
+                                  event.preventDefault();
+                                  void navigate({
+                                    to: "/shells/$projectId/$shellId",
+                                    params: {
+                                      projectId: project.id,
+                                      shellId: shell.id,
+                                    },
+                                  });
+                                }}
+                              >
+                                <div className="flex min-w-0 flex-1 items-center gap-1.5 text-left">
+                                  <TerminalIcon className="size-3.5 shrink-0" />
+                                  <div className="min-w-0 flex-1">
+                                    <span className="block truncate text-xs">{shell.title}</span>
+                                    <span className="block truncate text-[10px] text-muted-foreground/70">
+                                      {shell.cwd}
+                                    </span>
+                                  </div>
+                                </div>
+                                <div className="ml-auto flex shrink-0 items-center gap-1.5">
+                                  {isRunning && (
+                                    <span
+                                      role="img"
+                                      aria-label="Shell process running"
+                                      title="Shell process running"
+                                      className="inline-flex items-center justify-center text-teal-600 dark:text-teal-300/90"
+                                    >
+                                      <TerminalIcon className="size-3 animate-pulse" />
+                                    </span>
+                                  )}
+                                  <span
+                                    className={`text-[10px] ${
+                                      isActive ? "text-foreground/65" : "text-muted-foreground/40"
+                                    }`}
+                                  >
+                                    {formatRelativeTime(shell.createdAt)}
+                                  </span>
+                                </div>
+                              </SidebarMenuSubButton>
+                            </SidebarMenuSubItem>
+                          );
+                        })}
+
+                        <SidebarMenuSubItem className="w-full">
+                          <SidebarMenuSubButton
+                            render={<button type="button" />}
+                            size="sm"
+                            className="h-6 w-full translate-x-0 justify-start px-2 text-left text-[10px] text-muted-foreground/70 hover:bg-accent hover:text-foreground"
+                            onClick={() => {
+                              void createAndOpenProjectShell(project.id);
+                            }}
+                          >
+                            <TerminalIcon className="size-3.5 shrink-0" />
+                            <span>
+                              {shellCreateShortcutLabel
+                                ? `New shell (${shellCreateShortcutLabel})`
+                                : "New shell"}
+                            </span>
+                          </SidebarMenuSubButton>
+                        </SidebarMenuSubItem>
                       </SidebarMenuSub>
                     </CollapsibleContent>
                   </SidebarMenuItem>
@@ -1555,7 +1695,9 @@ export default function Sidebar() {
             </Button>
             <Button
               onClick={() => void addProjectFromPath(projectBrowserDirectoryPath ?? "")}
-              disabled={!projectBrowserDirectoryPath || projectBrowserQuery.isLoading || isAddingProject}
+              disabled={
+                !projectBrowserDirectoryPath || projectBrowserQuery.isLoading || isAddingProject
+              }
             >
               {isAddingProject
                 ? "Adding..."

@@ -15,13 +15,13 @@ import { AnchoredToastProvider, ToastProvider, toastManager } from "../component
 import { serverConfigQueryOptions, serverQueryKeys } from "../lib/serverReactQuery";
 import { readNativeApi } from "../nativeApi";
 import { useComposerDraftStore } from "../composerDraftStore";
+import { parseProjectShellRuntimeThreadId } from "../projectShells";
+import { useProjectShellStore } from "../projectShellStore";
 import { useStore } from "../store";
-import { useTerminalStateStore } from "../terminalStateStore";
 import { preferredTerminalEditor } from "../terminal-links";
 import { terminalRunningSubprocessFromEvent } from "../terminalActivity";
 import { onServerConfigUpdated, onServerWelcome } from "../wsNativeApi";
 import { providerQueryKeys } from "../lib/providerReactQuery";
-import { collectActiveTerminalThreadIds } from "../lib/terminalStateCleanup";
 
 export const Route = createRootRouteWithContext<{
   queryClient: QueryClient;
@@ -131,8 +131,8 @@ function errorDetails(error: unknown): string {
 function EventRouter() {
   const syncServerReadModel = useStore((store) => store.syncServerReadModel);
   const setProjectExpanded = useStore((store) => store.setProjectExpanded);
-  const removeOrphanedTerminalStates = useTerminalStateStore(
-    (store) => store.removeOrphanedTerminalStates,
+  const removeOrphanedProjectShellStates = useProjectShellStore(
+    (store) => store.removeOrphanedProjectShellStates,
   );
   const queryClient = useQueryClient();
   const navigate = useNavigate();
@@ -159,11 +159,13 @@ function EventRouter() {
       const draftThreadIds = Object.keys(
         useComposerDraftStore.getState().draftThreadsByThreadId,
       ) as ThreadId[];
-      const activeThreadIds = collectActiveTerminalThreadIds({
-        snapshotThreads: snapshot.threads,
-        draftThreadIds,
-      });
-      removeOrphanedTerminalStates(activeThreadIds);
+      const activeProjectIds = new Set(snapshot.projects.map((project) => project.id));
+      for (const draftThreadId of draftThreadIds) {
+        const draftThread = useComposerDraftStore.getState().draftThreadsByThreadId[draftThreadId];
+        if (!draftThread) continue;
+        activeProjectIds.add(draftThread.projectId);
+      }
+      removeOrphanedProjectShellStates(activeProjectIds);
       if (pending) {
         pending = false;
         await flushSnapshotSync();
@@ -202,11 +204,15 @@ function EventRouter() {
       if (hasRunningSubprocess === null) {
         return;
       }
-      useTerminalStateStore
+      const parsedProjectShellThreadId = parseProjectShellRuntimeThreadId(event.threadId);
+      if (!parsedProjectShellThreadId) {
+        return;
+      }
+      useProjectShellStore
         .getState()
-        .setTerminalActivity(
-          ThreadId.makeUnsafe(event.threadId),
-          event.terminalId,
+        .setShellActivity(
+          parsedProjectShellThreadId.projectId,
+          parsedProjectShellThreadId.shellId,
           hasRunningSubprocess,
         );
     });
@@ -288,7 +294,7 @@ function EventRouter() {
   }, [
     navigate,
     queryClient,
-    removeOrphanedTerminalStates,
+    removeOrphanedProjectShellStates,
     setProjectExpanded,
     syncServerReadModel,
   ]);

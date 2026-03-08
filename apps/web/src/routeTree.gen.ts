@@ -13,6 +13,8 @@ import { Route as ChatRouteImport } from './routes/_chat'
 import { Route as ChatIndexRouteImport } from './routes/_chat.index'
 import { Route as ChatSettingsRouteImport } from './routes/_chat.settings'
 import { Route as ChatThreadIdRouteImport } from './routes/_chat.$threadId'
+import { Route as ChatShellsProjectIdRouteImport } from './routes/_chat.shells.$projectId'
+import { Route as ChatShellsProjectIdShellIdRouteImport } from './routes/_chat.shells.$projectId.$shellId'
 
 const ChatRoute = ChatRouteImport.update({
   id: '/_chat',
@@ -33,16 +35,31 @@ const ChatThreadIdRoute = ChatThreadIdRouteImport.update({
   path: '/$threadId',
   getParentRoute: () => ChatRoute,
 } as any)
+const ChatShellsProjectIdRoute = ChatShellsProjectIdRouteImport.update({
+  id: '/shells/$projectId',
+  path: '/shells/$projectId',
+  getParentRoute: () => ChatRoute,
+} as any)
+const ChatShellsProjectIdShellIdRoute =
+  ChatShellsProjectIdShellIdRouteImport.update({
+    id: '/$shellId',
+    path: '/$shellId',
+    getParentRoute: () => ChatShellsProjectIdRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof ChatIndexRoute
   '/$threadId': typeof ChatThreadIdRoute
   '/settings': typeof ChatSettingsRoute
+  '/shells/$projectId': typeof ChatShellsProjectIdRouteWithChildren
+  '/shells/$projectId/$shellId': typeof ChatShellsProjectIdShellIdRoute
 }
 export interface FileRoutesByTo {
   '/$threadId': typeof ChatThreadIdRoute
   '/settings': typeof ChatSettingsRoute
   '/': typeof ChatIndexRoute
+  '/shells/$projectId': typeof ChatShellsProjectIdRouteWithChildren
+  '/shells/$projectId/$shellId': typeof ChatShellsProjectIdShellIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -50,13 +67,32 @@ export interface FileRoutesById {
   '/_chat/$threadId': typeof ChatThreadIdRoute
   '/_chat/settings': typeof ChatSettingsRoute
   '/_chat/': typeof ChatIndexRoute
+  '/_chat/shells/$projectId': typeof ChatShellsProjectIdRouteWithChildren
+  '/_chat/shells/$projectId/$shellId': typeof ChatShellsProjectIdShellIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/$threadId' | '/settings'
+  fullPaths:
+    | '/'
+    | '/$threadId'
+    | '/settings'
+    | '/shells/$projectId'
+    | '/shells/$projectId/$shellId'
   fileRoutesByTo: FileRoutesByTo
-  to: '/$threadId' | '/settings' | '/'
-  id: '__root__' | '/_chat' | '/_chat/$threadId' | '/_chat/settings' | '/_chat/'
+  to:
+    | '/$threadId'
+    | '/settings'
+    | '/'
+    | '/shells/$projectId'
+    | '/shells/$projectId/$shellId'
+  id:
+    | '__root__'
+    | '/_chat'
+    | '/_chat/$threadId'
+    | '/_chat/settings'
+    | '/_chat/'
+    | '/_chat/shells/$projectId'
+    | '/_chat/shells/$projectId/$shellId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -93,19 +129,46 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ChatThreadIdRouteImport
       parentRoute: typeof ChatRoute
     }
+    '/_chat/shells/$projectId': {
+      id: '/_chat/shells/$projectId'
+      path: '/shells/$projectId'
+      fullPath: '/shells/$projectId'
+      preLoaderRoute: typeof ChatShellsProjectIdRouteImport
+      parentRoute: typeof ChatRoute
+    }
+    '/_chat/shells/$projectId/$shellId': {
+      id: '/_chat/shells/$projectId/$shellId'
+      path: '/$shellId'
+      fullPath: '/shells/$projectId/$shellId'
+      preLoaderRoute: typeof ChatShellsProjectIdShellIdRouteImport
+      parentRoute: typeof ChatShellsProjectIdRoute
+    }
   }
 }
+
+interface ChatShellsProjectIdRouteChildren {
+  ChatShellsProjectIdShellIdRoute: typeof ChatShellsProjectIdShellIdRoute
+}
+
+const ChatShellsProjectIdRouteChildren: ChatShellsProjectIdRouteChildren = {
+  ChatShellsProjectIdShellIdRoute: ChatShellsProjectIdShellIdRoute,
+}
+
+const ChatShellsProjectIdRouteWithChildren =
+  ChatShellsProjectIdRoute._addFileChildren(ChatShellsProjectIdRouteChildren)
 
 interface ChatRouteChildren {
   ChatThreadIdRoute: typeof ChatThreadIdRoute
   ChatSettingsRoute: typeof ChatSettingsRoute
   ChatIndexRoute: typeof ChatIndexRoute
+  ChatShellsProjectIdRoute: typeof ChatShellsProjectIdRouteWithChildren
 }
 
 const ChatRouteChildren: ChatRouteChildren = {
   ChatThreadIdRoute: ChatThreadIdRoute,
   ChatSettingsRoute: ChatSettingsRoute,
   ChatIndexRoute: ChatIndexRoute,
+  ChatShellsProjectIdRoute: ChatShellsProjectIdRouteWithChildren,
 }
 
 const ChatRouteWithChildren = ChatRoute._addFileChildren(ChatRouteChildren)
