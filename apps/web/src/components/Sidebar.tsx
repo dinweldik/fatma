@@ -85,6 +85,7 @@ import {
   SidebarMenuSubItem,
   SidebarSeparator,
   SidebarTrigger,
+  useSidebar,
 } from "./ui/sidebar";
 import { formatWorktreePathForDisplay, getOrphanedWorktreePathForThread } from "../worktreeCleanup";
 import { isNonEmpty as isNonEmptyString } from "effect/String";
@@ -288,6 +289,7 @@ export default function Sidebar() {
   const clearProjectDraftThreadById = useComposerDraftStore(
     (store) => store.clearProjectDraftThreadById,
   );
+  const { isMobile, setOpenMobile } = useSidebar();
   const navigate = useNavigate();
   const { settings: appSettings } = useAppSettings();
   const routeThreadId = useParams({
@@ -426,6 +428,13 @@ export default function Sidebar() {
       });
     });
   }, []);
+
+  const collapseMobileSidebar = useCallback(() => {
+    if (!isMobile) {
+      return;
+    }
+    setOpenMobile(false);
+  }, [isMobile, setOpenMobile]);
 
   useEffect(() => {
     return onServerWelcome((payload) => {
@@ -941,6 +950,52 @@ export default function Sidebar() {
     [navigate, projects],
   );
 
+  const selectThreadFromSidebar = useCallback(
+    async (threadId: ThreadId) => {
+      await navigate({
+        to: "/$threadId",
+        params: { threadId },
+      });
+      collapseMobileSidebar();
+    },
+    [collapseMobileSidebar, navigate],
+  );
+
+  const selectShellFromSidebar = useCallback(
+    async (projectId: ProjectId, shellId: string) => {
+      await navigate({
+        to: "/shells/$projectId/$shellId",
+        params: {
+          projectId,
+          shellId,
+        },
+      });
+      collapseMobileSidebar();
+    },
+    [collapseMobileSidebar, navigate],
+  );
+
+  const createThreadFromSidebar = useCallback(
+    async (projectId: ProjectId) => {
+      await handleNewThread(projectId);
+      collapseMobileSidebar();
+    },
+    [collapseMobileSidebar, handleNewThread],
+  );
+
+  const createShellFromSidebar = useCallback(
+    async (projectId: ProjectId) => {
+      await createAndOpenProjectShell(projectId);
+      collapseMobileSidebar();
+    },
+    [collapseMobileSidebar, createAndOpenProjectShell],
+  );
+
+  const openSettingsFromSidebar = useCallback(async () => {
+    await navigate({ to: "/settings" });
+    collapseMobileSidebar();
+  }, [collapseMobileSidebar, navigate]);
+
   useEffect(() => {
     const onWindowKeyDown = (event: KeyboardEvent) => {
       const activeThread = routeThreadId
@@ -1267,7 +1322,7 @@ export default function Sidebar() {
                               onClick={(event) => {
                                 event.preventDefault();
                                 event.stopPropagation();
-                                void handleNewThread(project.id);
+                                void createThreadFromSidebar(project.id);
                               }}
                             >
                               <SquarePenIcon className="size-3.5" />
@@ -1304,18 +1359,12 @@ export default function Sidebar() {
                                     : "text-muted-foreground"
                                 }`}
                                 onClick={() => {
-                                  void navigate({
-                                    to: "/$threadId",
-                                    params: { threadId: thread.id },
-                                  });
+                                  void selectThreadFromSidebar(thread.id);
                                 }}
                                 onKeyDown={(event) => {
                                   if (event.key !== "Enter" && event.key !== " ") return;
                                   event.preventDefault();
-                                  void navigate({
-                                    to: "/$threadId",
-                                    params: { threadId: thread.id },
-                                  });
+                                  void selectThreadFromSidebar(thread.id);
                                 }}
                                 onContextMenu={(event) => {
                                   event.preventDefault();
@@ -1459,24 +1508,12 @@ export default function Sidebar() {
                                     : "text-muted-foreground"
                                 }`}
                                 onClick={() => {
-                                  void navigate({
-                                    to: "/shells/$projectId/$shellId",
-                                    params: {
-                                      projectId: project.id,
-                                      shellId: shell.id,
-                                    },
-                                  });
+                                  void selectShellFromSidebar(project.id, shell.id);
                                 }}
                                 onKeyDown={(event) => {
                                   if (event.key !== "Enter" && event.key !== " ") return;
                                   event.preventDefault();
-                                  void navigate({
-                                    to: "/shells/$projectId/$shellId",
-                                    params: {
-                                      projectId: project.id,
-                                      shellId: shell.id,
-                                    },
-                                  });
+                                  void selectShellFromSidebar(project.id, shell.id);
                                 }}
                               >
                                 <div className="flex min-w-0 flex-1 items-center gap-1.5 text-left">
@@ -1518,7 +1555,7 @@ export default function Sidebar() {
                             size="sm"
                             className="h-6 w-full translate-x-0 justify-start px-2 text-left text-[10px] text-muted-foreground/70 hover:bg-accent hover:text-foreground"
                             onClick={() => {
-                              void createAndOpenProjectShell(project.id);
+                              void createShellFromSidebar(project.id);
                             }}
                           >
                             <TerminalIcon className="size-3.5 shrink-0" />
@@ -1560,7 +1597,7 @@ export default function Sidebar() {
           type="button"
           className="flex w-full items-center justify-center gap-2 rounded-md border border-border py-2 text-xs text-muted-foreground/80 transition-colors duration-150 hover:border-ring hover:text-foreground"
           onClick={() => {
-            void navigate({ to: "/settings" });
+            void openSettingsFromSidebar();
           }}
         >
           <SettingsIcon className="size-3.5" />

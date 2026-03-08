@@ -23,9 +23,7 @@ import {
   closeProjectShell,
   createProjectShell,
   defaultProjectShellConfig,
-  runProjectScriptInShell,
 } from "../projectShellRunner";
-import { projectScriptIdFromCommand } from "../projectScripts";
 import { projectShellRuntimeThreadId } from "../projectShells";
 import { selectProjectShellCollection, useProjectShellStore } from "../projectShellStore";
 import { type Project } from "../types";
@@ -35,23 +33,13 @@ import {
   preferredTerminalEditor,
   resolvePathLinkTarget,
 } from "../terminal-links";
-import ProjectScriptsControl, { type NewProjectScriptInput } from "./ProjectScriptsControl";
 import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "./ui/menu";
+import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "./ui/select";
 import { SidebarTrigger } from "./ui/sidebar";
 
 const EMPTY_KEYBINDINGS: ResolvedKeybindingsConfig = [];
-
-function formatRelativeTime(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime();
-  const minutes = Math.floor(diff / 60_000);
-  if (minutes < 1) return "just now";
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  return `${Math.floor(hours / 24)}d ago`;
-}
 
 function writeSystemMessage(terminal: Terminal, message: string): void {
   terminal.write(`\r\n[shell] ${message}\r\n`);
@@ -434,13 +422,9 @@ function ShellTerminalViewport({
 export default function ProjectShellsView({
   project,
   shellId,
-  onAddProjectScript,
-  onUpdateProjectScript,
 }: {
   project: Project;
   shellId: string;
-  onAddProjectScript: (input: NewProjectScriptInput) => Promise<void>;
-  onUpdateProjectScript: (scriptId: string, input: NewProjectScriptInput) => Promise<void>;
 }) {
   const navigate = useNavigate();
   const [focusRequestId, setFocusRequestId] = useState(0);
@@ -458,6 +442,9 @@ export default function ProjectShellsView({
   const activeShell =
     collection.shells.find((shell) => shell.id === shellId) ?? collection.shells[0] ?? null;
   const activeShellId = activeShell?.id ?? null;
+  const requestShellFocus = useCallback(() => {
+    setFocusRequestId((current) => current + 1);
+  }, []);
 
   const openShell = useCallback(
     async (nextShellId: string) => {
@@ -473,10 +460,19 @@ export default function ProjectShellsView({
     [navigate, project.id, setActiveShell],
   );
 
+  const openShellAndFocus = useCallback(
+    async (nextShellId: string) => {
+      await openShell(nextShellId);
+      requestShellFocus();
+    },
+    [openShell, requestShellFocus],
+  );
+
   const createShellAndOpen = useCallback(async () => {
     const shell = createProjectShell(project.id, defaultProjectShellConfig(project));
     await openShell(shell.id);
-  }, [openShell, project]);
+    requestShellFocus();
+  }, [openShell, project, requestShellFocus]);
 
   const shellRuntimeThreadId = useMemo(
     () => (activeShell ? projectShellRuntimeThreadId(project.id, activeShell.id) : null),
@@ -497,19 +493,6 @@ export default function ProjectShellsView({
     });
   }, [activeShell, navigate, project.id]);
 
-  const runScript = useCallback(
-    async (script: Project["scripts"][number], preferNewShell = false) => {
-      const shell = await runProjectScriptInShell({
-        project,
-        script,
-        preferNewShell,
-      });
-      await openShell(shell.id);
-      setFocusRequestId((current) => current + 1);
-    },
-    [openShell, project],
-  );
-
   const interruptActiveShell = useCallback(async () => {
     if (!shellRuntimeThreadId) {
       return;
@@ -523,8 +506,8 @@ export default function ProjectShellsView({
       terminalId: DEFAULT_TERMINAL_ID,
       data: "\u0003",
     });
-    setFocusRequestId((current) => current + 1);
-  }, [shellRuntimeThreadId]);
+    requestShellFocus();
+  }, [requestShellFocus, shellRuntimeThreadId]);
 
   const clearActiveShell = useCallback(async () => {
     if (!shellRuntimeThreadId) {
@@ -538,8 +521,8 @@ export default function ProjectShellsView({
       threadId: shellRuntimeThreadId,
       terminalId: DEFAULT_TERMINAL_ID,
     });
-    setFocusRequestId((current) => current + 1);
-  }, [shellRuntimeThreadId]);
+    requestShellFocus();
+  }, [requestShellFocus, shellRuntimeThreadId]);
 
   useEffect(() => {
     if (collection.shells.length === 0) {
@@ -595,16 +578,14 @@ export default function ProjectShellsView({
       if (command === "terminal.toggle") {
         event.preventDefault();
         event.stopPropagation();
-        setFocusRequestId((current) => current + 1);
+        requestShellFocus();
         return;
       }
 
       if (command === "terminal.new" || command === "terminal.split") {
         event.preventDefault();
         event.stopPropagation();
-        void createShellAndOpen().then(() => {
-          setFocusRequestId((current) => current + 1);
-        });
+        void createShellAndOpen();
         return;
       }
 
@@ -614,43 +595,32 @@ export default function ProjectShellsView({
         void closeActiveShell();
         return;
       }
-
-      const scriptId = projectScriptIdFromCommand(command);
-      if (!scriptId) {
-        return;
-      }
-      const script = project.scripts.find((entry) => entry.id === scriptId);
-      if (!script) {
-        return;
-      }
-      event.preventDefault();
-      event.stopPropagation();
-      void runScript(script);
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [activeShell, closeActiveShell, createShellAndOpen, keybindings, project, runScript]);
+  }, [activeShell, closeActiveShell, createShellAndOpen, keybindings, requestShellFocus]);
 
   const newShellShortcutLabel = shortcutLabelForCommand(keybindings, "terminal.new");
   const closeShellShortcutLabel = shortcutLabelForCommand(keybindings, "terminal.close");
+  const activeShellIsRunning = collection.runningShellIds.includes(activeShell?.id ?? "");
 
   if (!activeShell) {
     return null;
   }
 
   return (
-    <div className="flex h-dvh min-h-0 flex-col bg-background text-foreground">
-      <header className="border-b border-border/70 px-3 py-3 sm:px-4">
+    <div className="flex h-full min-h-0 flex-col bg-background text-foreground">
+      <header className="shrink-0 border-b border-border/70 px-3 py-3 sm:px-4">
         <div className="flex items-center gap-2">
           <SidebarTrigger className="size-7 shrink-0 md:hidden" />
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
               <h1 className="truncate text-sm font-semibold">{project.name}</h1>
               <Badge variant="outline" className="hidden sm:inline-flex">
-                Shells
+                {collection.shells.length} {collection.shells.length === 1 ? "Shell" : "Shells"}
               </Badge>
             </div>
             <p className="truncate text-xs text-muted-foreground">{activeShell.cwd}</p>
@@ -667,149 +637,93 @@ export default function ProjectShellsView({
             <span className="hidden sm:inline">New Shell</span>
           </Button>
         </div>
-      </header>
 
-      <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
-        <aside className="border-b border-border/70 bg-card/35 lg:flex lg:w-80 lg:min-w-80 lg:flex-col lg:border-r lg:border-b-0">
-          <div className="space-y-3 p-3 sm:p-4">
-            <section className="space-y-2">
-              <div className="flex items-center justify-between gap-2">
-                <div>
-                  <p className="text-[11px] font-semibold tracking-[0.18em] text-muted-foreground uppercase">
-                    Project Shells
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    Shells are shared across this project.
-                  </p>
-                </div>
-                <Button
-                  size="icon-xs"
-                  variant="outline"
-                  aria-label="Create shell"
-                  onClick={() => {
-                    void createShellAndOpen();
-                  }}
-                >
-                  <PlusIcon className="size-3.5" />
-                </Button>
-              </div>
-
-              <div className="flex gap-2 overflow-x-auto pb-1 lg:flex-col lg:overflow-y-auto lg:pb-0">
+        <div className="mt-3 space-y-3">
+          <div className="sm:hidden">
+            <Select
+              items={collection.shells.map((shell) => ({
+                label: shell.title,
+                value: shell.id,
+              }))}
+              value={activeShell.id}
+              onValueChange={(value) => {
+                if (!value || value === activeShell.id) {
+                  return;
+                }
+                void openShellAndFocus(value);
+              }}
+            >
+              <SelectTrigger aria-label="Switch shell" size="sm">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectPopup alignItemWithTrigger={false}>
                 {collection.shells.map((shell) => {
-                  const isActive = shell.id === activeShell.id;
                   const isRunning = collection.runningShellIds.includes(shell.id);
                   return (
-                    <button
+                    <SelectItem
                       key={shell.id}
-                      type="button"
-                      className={cn(
-                        "flex min-w-52 flex-col items-start gap-1 rounded-2xl border px-3 py-3 text-left transition-colors lg:min-w-0",
-                        isActive
-                          ? "border-border bg-accent text-accent-foreground"
-                          : "border-border/60 bg-background/80 hover:bg-accent/60",
-                      )}
-                      onClick={() => {
-                        void openShell(shell.id).then(() => {
-                          setFocusRequestId((current) => current + 1);
-                        });
-                      }}
+                      value={shell.id}
                     >
-                      <div className="flex w-full items-center gap-2">
-                        <div className="inline-flex size-8 items-center justify-center rounded-xl bg-muted/70">
-                          <SquareTerminalIcon className="size-4" />
-                        </div>
+                      <div className="flex min-w-0 items-center gap-2">
+                        <SquareTerminalIcon className="size-3.5 shrink-0" />
                         <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm font-medium">{shell.title}</p>
-                          <p className="truncate text-[11px] text-muted-foreground">{shell.cwd}</p>
+                          <div className="truncate">{shell.title}</div>
+                          <div className="truncate text-xs text-muted-foreground">{shell.cwd}</div>
                         </div>
+                        <span
+                          className={cn(
+                            "shrink-0 text-[11px]",
+                            isRunning
+                              ? "text-emerald-600 dark:text-emerald-300/90"
+                              : "text-muted-foreground",
+                          )}
+                        >
+                          {isRunning ? "Live" : "Idle"}
+                        </span>
                       </div>
-                      <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
-                        {isRunning ? (
-                          <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-300/90">
-                            <span className="size-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                            Running
-                          </span>
-                        ) : (
-                          <span>Idle</span>
-                        )}
-                        <span>{formatRelativeTime(shell.createdAt)}</span>
-                      </div>
-                    </button>
+                    </SelectItem>
                   );
                 })}
-              </div>
-            </section>
-
-            <section className="space-y-2 rounded-2xl border border-border/70 bg-background/70 p-3">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="text-[11px] font-semibold tracking-[0.18em] text-muted-foreground uppercase">
-                    Commands
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    Save project-wide shell commands and run them in a shared shell.
-                  </p>
-                </div>
-                <TerminalIcon className="mt-0.5 size-4 text-muted-foreground" />
-              </div>
-
-              <ProjectScriptsControl
-                scripts={project.scripts}
-                keybindings={keybindings}
-                onRunScript={(script) => {
-                  void runScript(script);
-                }}
-                onAddScript={onAddProjectScript}
-                onUpdateScript={onUpdateProjectScript}
-              />
-
-              {project.scripts.length > 0 && (
-                <div className="space-y-2">
-                  {project.scripts.map((script) => (
-                    <div
-                      key={script.id}
-                      className="flex items-center justify-between gap-2 rounded-xl border border-border/60 bg-background px-3 py-2"
-                    >
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-medium">{script.name}</p>
-                        <p className="truncate font-mono text-[11px] text-muted-foreground">
-                          {script.command}
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Button
-                          size="xs"
-                          variant="outline"
-                          onClick={() => {
-                            void runScript(script);
-                          }}
-                        >
-                          Run
-                        </Button>
-                        <Button
-                          size="xs"
-                          variant="ghost"
-                          onClick={() => {
-                            void runScript(script, true);
-                          }}
-                        >
-                          New Shell
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </section>
+              </SelectPopup>
+            </Select>
           </div>
-        </aside>
 
-        <main className="flex min-h-0 flex-1 flex-col">
-          <div className="flex items-center justify-between gap-3 border-b border-border/70 px-3 py-3 sm:px-4">
+          <div className="hidden gap-2 overflow-x-auto pb-1 sm:flex">
+            {collection.shells.map((shell) => {
+              const isActive = shell.id === activeShell.id;
+              const isRunning = collection.runningShellIds.includes(shell.id);
+              return (
+                <button
+                  key={shell.id}
+                  type="button"
+                  className={cn(
+                    "flex min-w-0 items-center gap-2 rounded-xl border px-3 py-2 text-left transition-colors",
+                    isActive
+                      ? "border-border bg-accent text-accent-foreground"
+                      : "border-border/60 bg-background/80 hover:bg-accent/60",
+                  )}
+                  onClick={() => {
+                    void openShellAndFocus(shell.id);
+                  }}
+                >
+                  <SquareTerminalIcon className="size-3.5 shrink-0" />
+                  <span className="truncate text-sm font-medium">{shell.title}</span>
+                  <span
+                    className={cn(
+                      "inline-flex size-2 shrink-0 rounded-full",
+                      isRunning ? "bg-emerald-500" : "bg-muted-foreground/30",
+                    )}
+                  />
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="flex items-start justify-between gap-3 rounded-2xl border border-border/70 bg-card/40 px-3 py-3">
             <div className="min-w-0">
               <div className="flex items-center gap-2">
                 <h2 className="truncate text-sm font-medium">{activeShell.title}</h2>
-                {collection.runningShellIds.includes(activeShell.id) && (
+                {activeShellIsRunning && (
                   <Badge variant="outline" className="text-emerald-600 dark:text-emerald-300/90">
                     Live
                   </Badge>
@@ -823,7 +737,7 @@ export default function ProjectShellsView({
                 variant="outline"
                 aria-label="Focus shell"
                 onClick={() => {
-                  setFocusRequestId((current) => current + 1);
+                  requestShellFocus();
                 }}
               >
                 <TerminalIcon className="size-3.5" />
@@ -851,7 +765,7 @@ export default function ProjectShellsView({
                   </MenuItem>
                   <MenuItem
                     onClick={() => {
-                      setFocusRequestId((current) => current + 1);
+                      requestShellFocus();
                     }}
                   >
                     Focus shell
@@ -883,20 +797,20 @@ export default function ProjectShellsView({
               </Button>
             </div>
           </div>
+        </div>
+      </header>
 
-          <div className="min-h-0 flex-1 p-3 sm:p-4">
-            <div className="h-full min-h-[24rem] rounded-2xl border border-border/70 bg-card/40 p-2 shadow-sm">
-              <ShellTerminalViewport
-                projectId={project.id}
-                shellId={activeShell.id}
-                cwd={activeShell.cwd}
-                runtimeEnv={activeShell.env}
-                focusRequestId={focusRequestId}
-              />
-            </div>
-          </div>
-        </main>
-      </div>
+      <main className="flex min-h-0 flex-1 flex-col p-3 sm:p-4">
+        <div className="flex min-h-0 flex-1 rounded-2xl border border-border/70 bg-card/40 p-2 shadow-sm">
+          <ShellTerminalViewport
+            projectId={project.id}
+            shellId={activeShell.id}
+            cwd={activeShell.cwd}
+            runtimeEnv={activeShell.env}
+            focusRequestId={focusRequestId}
+          />
+        </div>
+      </main>
     </div>
   );
 }

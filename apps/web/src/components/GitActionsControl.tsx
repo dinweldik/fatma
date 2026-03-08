@@ -263,6 +263,7 @@ function ChangeSection({
 function SourceControlPanel({
   gitCwd,
   projectName,
+  isMobileLayout,
   isRepo,
   isLoadingRepoState,
   isLoadingStatus,
@@ -290,6 +291,7 @@ function SourceControlPanel({
 }: {
   gitCwd: string;
   projectName?: string;
+  isMobileLayout: boolean;
   isRepo: boolean | null;
   isLoadingRepoState: boolean;
   isLoadingStatus: boolean;
@@ -362,7 +364,12 @@ function SourceControlPanel({
   const remoteUrl = gitStatus?.remoteUrl?.trim() ? gitStatus.remoteUrl : "No origin remote configured";
 
   return (
-    <div className="flex max-h-[min(82vh,56rem)] min-h-0 min-w-0 w-full flex-col gap-4">
+    <div
+      className={cn(
+        "flex min-h-0 min-w-0 w-full flex-col gap-4",
+        !isMobileLayout && "max-h-[min(82vh,56rem)]",
+      )}
+    >
       <div className="space-y-1">
         <p className="text-[11px] font-semibold tracking-[0.16em] text-muted-foreground uppercase">
           Source Control
@@ -505,7 +512,7 @@ function SourceControlPanel({
           />
 
           {selectedFile ? (
-            <section className="min-h-0 flex-1 space-y-2">
+            <section className={cn("space-y-2", !isMobileLayout && "min-h-0 flex-1")}>
               <div className="flex items-center justify-between gap-3">
                 <p className="text-[11px] font-semibold tracking-[0.16em] text-muted-foreground uppercase">
                   {scopeLabel(selectedTarget?.scope ?? "unstaged")} Diff
@@ -543,7 +550,12 @@ function SourceControlPanel({
                   </div>
                 </div>
 
-                <div className="max-h-[28rem] overflow-auto">
+                <div
+                  className={cn(
+                    "overflow-x-auto",
+                    isMobileLayout ? "overflow-y-visible" : "max-h-[28rem] overflow-y-auto",
+                  )}
+                >
                   {selectedFileDiffError ? (
                     <div className="px-4 py-5 text-sm text-destructive">{selectedFileDiffError}</div>
                   ) : !selectedRenderablePatch ? (
@@ -735,6 +747,7 @@ export default function GitActionsControl({ gitCwd, projectName }: GitActionsCon
   const panel = (
     <SourceControlPanel
       gitCwd={gitCwd}
+      isMobileLayout={isMobile}
       isRepo={branchListQuery.data?.isRepo ?? null}
       isLoadingRepoState={branchListQuery.isLoading}
       isLoadingStatus={gitStatusQuery.isLoading}
@@ -773,8 +786,12 @@ export default function GitActionsControl({ gitCwd, projectName }: GitActionsCon
     return (
       <Sheet open={open} onOpenChange={setOpen}>
         <SheetTrigger render={trigger} />
-        <SheetPopup side="right" className="w-[min(100vw,34rem)] p-0">
-          <div className="p-4 sm:p-5">{panel}</div>
+        <SheetPopup side="right" className="h-dvh w-full max-w-none p-0">
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 sm:p-5">
+              {panel}
+            </div>
+          </div>
         </SheetPopup>
       </Sheet>
     );
