@@ -28,7 +28,7 @@ const serverStart = Effect.acquireRelease(
   }),
   () => Effect.sync(() => stop()),
 );
-const findAvailablePort = vi.fn((preferred: number) => Effect.succeed(preferred));
+const findAvailablePort = vi.fn((preferred: number, _host?: string) => Effect.succeed(preferred));
 
 // Shared service layer used by this CLI test suite.
 const testLayer = Layer.mergeAll(
@@ -159,7 +159,7 @@ it.layer(testLayer)("server CLI command", (it) => {
         T3CODE_NO_BROWSER: "true",
       });
 
-      assert.deepStrictEqual(findAvailablePort.mock.calls, [[3773]]);
+      assert.deepStrictEqual(findAvailablePort.mock.calls, [[3773, "127.0.0.1"]]);
       assert.equal(start.mock.calls.length, 1);
       assert.equal(resolvedConfig?.mode, "web");
       assert.equal(resolvedConfig?.port, 4666);
@@ -183,7 +183,7 @@ it.layer(testLayer)("server CLI command", (it) => {
       findAvailablePort.mockImplementation((_preferred: number) => Effect.succeed(5444));
       yield* runCli([]);
 
-      assert.deepStrictEqual(findAvailablePort.mock.calls, [[3773]]);
+      assert.deepStrictEqual(findAvailablePort.mock.calls, [[3773, "127.0.0.1"]]);
       assert.equal(start.mock.calls.length, 1);
       assert.equal(resolvedConfig?.port, 5444);
       assert.equal(resolvedConfig?.mode, "web");

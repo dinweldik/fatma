@@ -140,6 +140,8 @@ const ServerConfigLive = (input: CliInput) =>
 
       const mode = Option.getOrElse(input.mode, () => env.mode);
 
+      const host = Option.getOrUndefined(input.host) ?? env.host ?? "127.0.0.1";
+
       const port = yield* Option.match(input.port, {
         onSome: (value) => Effect.succeed(value),
         onNone: () => {
@@ -149,7 +151,7 @@ const ServerConfigLive = (input: CliInput) =>
           if (mode === "desktop") {
             return Effect.succeed(DEFAULT_PORT);
           }
-          return findAvailablePort(DEFAULT_PORT);
+          return findAvailablePort(DEFAULT_PORT, host);
         },
       });
       const stateDir = yield* resolveStateDir(
@@ -169,8 +171,6 @@ const ServerConfigLive = (input: CliInput) =>
       const staticDir = devUrl ? undefined : yield* cliConfig.resolveStaticDir;
       const { join } = yield* Path.Path;
       const keybindingsConfigPath = join(stateDir, "keybindings.json");
-      const host = Option.getOrUndefined(input.host) ?? env.host ?? "127.0.0.1";
-
       const config: ServerConfigShape = {
         mode,
         port,

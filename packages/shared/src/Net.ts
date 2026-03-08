@@ -26,7 +26,7 @@ const closeServer = (server: Net.Server) => {
   }
 };
 
-const tryReservePort = (port: number): Effect.Effect<number, NetError> =>
+const tryReservePort = (port: number, host?: string): Effect.Effect<number, NetError> =>
   Effect.callback<number, NetError>((resume) => {
     const server = Net.createServer();
     let settled = false;
@@ -43,17 +43,31 @@ const tryReservePort = (port: number): Effect.Effect<number, NetError> =>
       settle(Effect.fail(new NetError({ message: "Could not find an available port.", cause })));
     });
 
-    server.listen(port, () => {
-      const address = server.address();
-      const resolved = typeof address === "object" && address !== null ? address.port : 0;
-      server.close(() => {
-        if (resolved > 0) {
-          settle(Effect.succeed(resolved));
-          return;
-        }
-        settle(Effect.fail(new NetError({ message: "Could not find an available port." })));
+    if (host) {
+      server.listen({ host, port }, () => {
+        const address = server.address();
+        const resolved = typeof address === "object" && address !== null ? address.port : 0;
+        server.close(() => {
+          if (resolved > 0) {
+            settle(Effect.succeed(resolved));
+            return;
+          }
+          settle(Effect.fail(new NetError({ message: "Could not find an available port." })));
+        });
       });
-    });
+    } else {
+      server.listen(port, () => {
+        const address = server.address();
+        const resolved = typeof address === "object" && address !== null ? address.port : 0;
+        server.close(() => {
+          if (resolved > 0) {
+            settle(Effect.succeed(resolved));
+            return;
+          }
+          settle(Effect.fail(new NetError({ message: "Could not find an available port." })));
+        });
+      });
+    }
 
     return Effect.sync(() => {
       closeServer(server);
@@ -79,7 +93,7 @@ export interface NetServiceShape {
   /**
    * Resolve an available listening port, preferring the provided port first.
    */
-  readonly findAvailablePort: (preferred: number) => Effect.Effect<number, NetError>;
+  readonly findAvailablePort: (preferred: number, host?: string) => Effect.Effect<number, NetError>;
 }
 
 /**
@@ -173,8 +187,8 @@ export class NetService extends ServiceMap.Service<NetService, NetServiceShape>(
           (ipv4, ipv6) => ipv4 && ipv6,
         ),
       reserveLoopbackPort,
-      findAvailablePort: (preferred) =>
-        Effect.catch(tryReservePort(preferred), () => tryReservePort(0)),
+      findAvailablePort: (preferred, host) =>
+        Effect.catch(tryReservePort(preferred, host), () => tryReservePort(0, host)),
     } satisfies NetServiceShape;
   });
 }

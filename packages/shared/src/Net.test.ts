@@ -74,22 +74,37 @@ it.layer(NetService.layer)("NetService", (it) => {
         const net = yield* NetService;
         const preferred = yield* net.reserveLoopbackPort();
 
-        const resolved = yield* net.findAvailablePort(preferred);
+        const resolved = yield* net.findAvailablePort(preferred, "127.0.0.1");
         assert.equal(resolved, preferred);
       }),
     );
 
     it.effect("findAvailablePort falls back when preferred is occupied", () =>
       Effect.acquireUseRelease(
-        openServer(),
+        openServer("127.0.0.1"),
         (server) =>
           Effect.gen(function* () {
             const net = yield* NetService;
             const preferred = getPort(server);
 
-            const resolved = yield* net.findAvailablePort(preferred);
+            const resolved = yield* net.findAvailablePort(preferred, "127.0.0.1");
             assert.ok(resolved > 0);
             assert.notEqual(resolved, preferred);
+          }),
+        closeServer,
+      ),
+    );
+
+    it.effect("findAvailablePort can reuse a preferred port on loopback when another interface owns it", () =>
+      Effect.acquireUseRelease(
+        openServer("127.0.0.2"),
+        (server) =>
+          Effect.gen(function* () {
+            const net = yield* NetService;
+            const preferred = getPort(server);
+
+            const resolved = yield* net.findAvailablePort(preferred, "127.0.0.1");
+            assert.equal(resolved, preferred);
           }),
         closeServer,
       ),
