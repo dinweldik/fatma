@@ -5,7 +5,7 @@ import {
   type ResolvedKeybindingsConfig,
 } from "@t3tools/contracts";
 import { Terminal, type ITheme } from "@xterm/xterm";
-import { PlusIcon, SquareTerminalIcon, TerminalIcon, Trash2Icon } from "lucide-react";
+import { EllipsisIcon, PlusIcon, SquareTerminalIcon, TerminalIcon, Trash2Icon } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
@@ -38,6 +38,7 @@ import {
 import ProjectScriptsControl, { type NewProjectScriptInput } from "./ProjectScriptsControl";
 import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
+import { Menu, MenuItem, MenuPopup, MenuTrigger } from "./ui/menu";
 import { SidebarTrigger } from "./ui/sidebar";
 
 const EMPTY_KEYBINDINGS: ResolvedKeybindingsConfig = [];
@@ -474,6 +475,11 @@ export default function ProjectShellsView({
     await openShell(shell.id);
   }, [openShell, project]);
 
+  const shellRuntimeThreadId = useMemo(
+    () => (activeShell ? projectShellRuntimeThreadId(project.id, activeShell.id) : null),
+    [activeShell, project.id],
+  );
+
   const closeActiveShell = useCallback(async () => {
     if (!activeShell) {
       return;
@@ -500,6 +506,37 @@ export default function ProjectShellsView({
     },
     [openShell, project],
   );
+
+  const interruptActiveShell = useCallback(async () => {
+    if (!shellRuntimeThreadId) {
+      return;
+    }
+    const api = readNativeApi();
+    if (!api) {
+      return;
+    }
+    await api.terminal.write({
+      threadId: shellRuntimeThreadId,
+      terminalId: DEFAULT_TERMINAL_ID,
+      data: "\u0003",
+    });
+    setFocusRequestId((current) => current + 1);
+  }, [shellRuntimeThreadId]);
+
+  const clearActiveShell = useCallback(async () => {
+    if (!shellRuntimeThreadId) {
+      return;
+    }
+    const api = readNativeApi();
+    if (!api) {
+      return;
+    }
+    await api.terminal.clear({
+      threadId: shellRuntimeThreadId,
+      terminalId: DEFAULT_TERMINAL_ID,
+    });
+    setFocusRequestId((current) => current + 1);
+  }, [shellRuntimeThreadId]);
 
   useEffect(() => {
     if (collection.shells.length === 0) {
@@ -788,6 +825,45 @@ export default function ProjectShellsView({
               >
                 <TerminalIcon className="size-3.5" />
               </Button>
+              <Menu>
+                <MenuTrigger
+                  render={<Button size="icon-xs" variant="ghost" aria-label="Shell actions" />}
+                >
+                  <EllipsisIcon className="size-3.5" />
+                </MenuTrigger>
+                <MenuPopup align="end">
+                  <MenuItem
+                    onClick={() => {
+                      void interruptActiveShell();
+                    }}
+                  >
+                    Interrupt command
+                  </MenuItem>
+                  <MenuItem
+                    onClick={() => {
+                      void clearActiveShell();
+                    }}
+                  >
+                    Clear screen
+                  </MenuItem>
+                  <MenuItem
+                    onClick={() => {
+                      setFocusRequestId((current) => current + 1);
+                    }}
+                  >
+                    Focus shell
+                  </MenuItem>
+                  <MenuItem
+                    onClick={() => {
+                      void closeActiveShell();
+                    }}
+                  >
+                    {closeShellShortcutLabel
+                      ? `Close shell (${closeShellShortcutLabel})`
+                      : "Close shell"}
+                  </MenuItem>
+                </MenuPopup>
+              </Menu>
               <Button
                 size="icon-xs"
                 variant="ghost"

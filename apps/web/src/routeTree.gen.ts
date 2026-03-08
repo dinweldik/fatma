@@ -14,6 +14,7 @@ import { Route as ChatIndexRouteImport } from './routes/_chat.index'
 import { Route as ChatSettingsRouteImport } from './routes/_chat.settings'
 import { Route as ChatThreadIdRouteImport } from './routes/_chat.$threadId'
 import { Route as ChatShellsProjectIdRouteImport } from './routes/_chat.shells.$projectId'
+import { Route as ChatShellsProjectIdIndexRouteImport } from './routes/_chat.shells.$projectId.index'
 import { Route as ChatShellsProjectIdShellIdRouteImport } from './routes/_chat.shells.$projectId.$shellId'
 
 const ChatRoute = ChatRouteImport.update({
@@ -40,6 +41,12 @@ const ChatShellsProjectIdRoute = ChatShellsProjectIdRouteImport.update({
   path: '/shells/$projectId',
   getParentRoute: () => ChatRoute,
 } as any)
+const ChatShellsProjectIdIndexRoute =
+  ChatShellsProjectIdIndexRouteImport.update({
+    id: '/',
+    path: '/',
+    getParentRoute: () => ChatShellsProjectIdRoute,
+  } as any)
 const ChatShellsProjectIdShellIdRoute =
   ChatShellsProjectIdShellIdRouteImport.update({
     id: '/$shellId',
@@ -53,13 +60,14 @@ export interface FileRoutesByFullPath {
   '/settings': typeof ChatSettingsRoute
   '/shells/$projectId': typeof ChatShellsProjectIdRouteWithChildren
   '/shells/$projectId/$shellId': typeof ChatShellsProjectIdShellIdRoute
+  '/shells/$projectId/': typeof ChatShellsProjectIdIndexRoute
 }
 export interface FileRoutesByTo {
   '/$threadId': typeof ChatThreadIdRoute
   '/settings': typeof ChatSettingsRoute
   '/': typeof ChatIndexRoute
-  '/shells/$projectId': typeof ChatShellsProjectIdRouteWithChildren
   '/shells/$projectId/$shellId': typeof ChatShellsProjectIdShellIdRoute
+  '/shells/$projectId': typeof ChatShellsProjectIdIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -69,6 +77,7 @@ export interface FileRoutesById {
   '/_chat/': typeof ChatIndexRoute
   '/_chat/shells/$projectId': typeof ChatShellsProjectIdRouteWithChildren
   '/_chat/shells/$projectId/$shellId': typeof ChatShellsProjectIdShellIdRoute
+  '/_chat/shells/$projectId/': typeof ChatShellsProjectIdIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -78,13 +87,14 @@ export interface FileRouteTypes {
     | '/settings'
     | '/shells/$projectId'
     | '/shells/$projectId/$shellId'
+    | '/shells/$projectId/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/$threadId'
     | '/settings'
     | '/'
-    | '/shells/$projectId'
     | '/shells/$projectId/$shellId'
+    | '/shells/$projectId'
   id:
     | '__root__'
     | '/_chat'
@@ -93,6 +103,7 @@ export interface FileRouteTypes {
     | '/_chat/'
     | '/_chat/shells/$projectId'
     | '/_chat/shells/$projectId/$shellId'
+    | '/_chat/shells/$projectId/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -136,6 +147,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ChatShellsProjectIdRouteImport
       parentRoute: typeof ChatRoute
     }
+    '/_chat/shells/$projectId/': {
+      id: '/_chat/shells/$projectId/'
+      path: '/'
+      fullPath: '/shells/$projectId/'
+      preLoaderRoute: typeof ChatShellsProjectIdIndexRouteImport
+      parentRoute: typeof ChatShellsProjectIdRoute
+    }
     '/_chat/shells/$projectId/$shellId': {
       id: '/_chat/shells/$projectId/$shellId'
       path: '/$shellId'
@@ -148,10 +166,12 @@ declare module '@tanstack/react-router' {
 
 interface ChatShellsProjectIdRouteChildren {
   ChatShellsProjectIdShellIdRoute: typeof ChatShellsProjectIdShellIdRoute
+  ChatShellsProjectIdIndexRoute: typeof ChatShellsProjectIdIndexRoute
 }
 
 const ChatShellsProjectIdRouteChildren: ChatShellsProjectIdRouteChildren = {
   ChatShellsProjectIdShellIdRoute: ChatShellsProjectIdShellIdRoute,
+  ChatShellsProjectIdIndexRoute: ChatShellsProjectIdIndexRoute,
 }
 
 const ChatShellsProjectIdRouteWithChildren =
