@@ -73,7 +73,10 @@ import {
 import { parseBase64DataUrl } from "./imageMime.ts";
 import { AnalyticsService } from "./telemetry/Services/AnalyticsService.ts";
 import { expandHomePath } from "./os-jank.ts";
-import { TelegramNotifications } from "./telegramNotifications";
+import {
+  isTelegramNotifiableOrchestrationEvent,
+  TelegramNotifications,
+} from "./telegramNotifications";
 
 /**
  * ServerShape - Service API for server lifecycle control.
@@ -663,19 +666,14 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
         data: event,
       });
 
-      if (
-        event.type !== "thread.turn-diff-completed" &&
-        (event.type !== "thread.activity-appended" ||
-          (event.payload.activity.kind !== "user-input.requested" &&
-            event.payload.activity.kind !== "approval.requested"))
-      ) {
+      if (!isTelegramNotifiableOrchestrationEvent(event)) {
         return;
       }
 
       const threadId = event.payload.threadId;
       const snapshot = yield* projectionReadModelQuery.getSnapshot();
-      const threadTitle = snapshot.threads.find((thread) => thread.id === threadId)?.title ?? null;
-      yield* telegramNotifications.sendOrchestrationNotification(event, threadTitle);
+      const thread = snapshot.threads.find((entry) => entry.id === threadId) ?? null;
+      yield* telegramNotifications.sendOrchestrationNotification(event, thread);
     }),
   ).pipe(Effect.forkIn(subscriptionsScope));
 

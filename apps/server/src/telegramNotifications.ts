@@ -1,5 +1,6 @@
 import type {
   OrchestrationEvent,
+  OrchestrationThread,
   ServerSendTestTelegramNotificationInput,
   ServerSendTestTelegramNotificationResult,
   ServerTelegramNotificationSettings,
@@ -26,6 +27,11 @@ const EMPTY_PERSISTED_TELEGRAM_NOTIFICATIONS: PersistedTelegramNotifications = {
   chatId: "",
 };
 
+type TelegramNotifiableOrchestrationEvent = Extract<
+  OrchestrationEvent,
+  { type: "thread.activity-appended" }
+>;
+
 export class TelegramNotificationsError extends Schema.TaggedErrorClass<TelegramNotificationsError>()(
   "TelegramNotificationsError",
   {
@@ -47,7 +53,7 @@ export interface TelegramNotificationsShape {
   ) => Effect.Effect<ServerSendTestTelegramNotificationResult, TelegramNotificationsError>;
   readonly sendOrchestrationNotification: (
     event: OrchestrationEvent,
-    threadTitle?: string | null,
+    thread?: OrchestrationThread | null,
   ) => Effect.Effect<void, never>;
 }
 
@@ -100,29 +106,160 @@ function resolveDraftSettings(
   };
 }
 
-function buildTelegramNotificationText(
-  event: OrchestrationEvent,
-  threadTitle?: string | null,
-): string | null {
-  const resolvedThreadTitle = threadTitle?.trim() || "Current thread";
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : null;
+}
 
-  if (event.type === "thread.turn-diff-completed") {
-    return event.payload.status === "error"
-      ? `${APP_NOTIFICATION_NAME}: Codex finished with errors\n${resolvedThreadTitle} is ready.`
-      : `${APP_NOTIFICATION_NAME}: Codex finished working\n${resolvedThreadTitle} is ready.`;
-  }
+function asNonEmptyString(value: unknown): string | null {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+}
 
-  if (event.type !== "thread.activity-appended") {
+function formatDuration(startedAt: string | null, endedAt: string): string | null {
+  if (startedAt === null) {
     return null;
   }
 
+  const startedAtMs = Date.parse(startedAt);
+  const endedAtMs = Date.parse(endedAt);
+  if (!Number.isFinite(startedAtMs) || !Number.isFinite(endedAtMs) || endedAtMs < startedAtMs) {
+    return null;
+  }
+
+  const totalSeconds = Math.max(0, Math.round((endedAtMs - startedAtMs) / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+
+  if (hours > 0) {
+    return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
+  }
+
+  if (minutes > 0) {
+    return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`;
+  }
+
+  return `${seconds}s`;
+}
+
+function resolveThreadTitle(thread?: OrchestrationThread | null): string {
+  return thread?.title.trim() || "Current thread";
+}
+
+function taskIdFromActivity(activity: OrchestrationThread["activities"][number]): string | null {
+  const payload = asRecord(activity.payload);
+  return asNonEmptyString(payload?.taskId);
+}
+
+function taskStatusFromActivity(
+  activity: OrchestrationThread["activities"][number],
+): "completed" | "failed" | "stopped" | null {
+  const payload = asRecord(activity.payload);
+  const status = asNonEmptyString(payload?.status);
+  return status === "completed" || status === "failed" || status === "stopped" ? status : null;
+}
+
+function resolveTaskStartedAt(
+  activity: OrchestrationThread["activities"][number],
+  thread?: OrchestrationThread | null,
+): string | null {
+  const taskId = taskIdFromActivity(activity);
+  if (taskId && thread) {
+    for (let index = thread.activities.length - 1; index >= 0; index -= 1) {
+      const candidate = thread.activities[index];
+      if (candidate?.kind !== "task.started") {
+        continue;
+      }
+      if (taskIdFromActivity(candidate) === taskId) {
+        return candidate.createdAt;
+      }
+    }
+  }
+
+  return thread?.latestTurn?.startedAt ?? thread?.latestTurn?.requestedAt ?? null;
+}
+
+function summarizeQuestions(activity: OrchestrationThread["activities"][number]): string | null {
+  const payload = asRecord(activity.payload);
+  const questions = payload?.questions;
+  if (!Array.isArray(questions)) {
+    return null;
+  }
+
+  const firstQuestion = questions.find(
+    (question) => asNonEmptyString(asRecord(question)?.question) !== null,
+  );
+  return firstQuestion ? asNonEmptyString(asRecord(firstQuestion)?.question) : null;
+}
+
+function compactLines(lines: ReadonlyArray<string | null>): string {
+  return lines.filter((line): line is string => line !== null && line.length > 0).join("\n");
+}
+
+export function isTelegramNotifiableOrchestrationEvent(
+  event: OrchestrationEvent,
+): event is TelegramNotifiableOrchestrationEvent {
+  if (event.type !== "thread.activity-appended") {
+    return false;
+  }
+
+  return (
+    event.payload.activity.kind === "task.completed" ||
+    event.payload.activity.kind === "user-input.requested" ||
+    event.payload.activity.kind === "approval.requested"
+  );
+}
+
+export function buildTelegramNotificationText(
+  event: OrchestrationEvent,
+  thread?: OrchestrationThread | null,
+): string | null {
+  if (!isTelegramNotifiableOrchestrationEvent(event)) {
+    return null;
+  }
+
+  const resolvedThreadTitle = resolveThreadTitle(thread);
   const { activity } = event.payload;
+  const duration = formatDuration(resolveTaskStartedAt(activity, thread), activity.createdAt);
+
+  if (activity.kind === "task.completed") {
+    const status = taskStatusFromActivity(activity);
+    if (status === "failed") {
+      return compactLines([
+        `❌ ${APP_NOTIFICATION_NAME}: Codex finished with errors`,
+        `${resolvedThreadTitle} needs review.`,
+        duration ? `Time worked: ${duration}` : null,
+      ]);
+    }
+
+    if (status === "stopped") {
+      return compactLines([
+        `⏹️ ${APP_NOTIFICATION_NAME}: Codex stopped`,
+        `${resolvedThreadTitle} stopped.`,
+        duration ? `Time worked: ${duration}` : null,
+      ]);
+    }
+
+    return compactLines([
+      `✅ ${APP_NOTIFICATION_NAME}: Codex finished working`,
+      `${resolvedThreadTitle} is ready.`,
+      duration ? `Time worked: ${duration}` : null,
+    ]);
+  }
+
   if (activity.kind === "user-input.requested") {
-    return `${APP_NOTIFICATION_NAME}: Codex needs your input\n${resolvedThreadTitle}: ${activity.summary}`;
+    return compactLines([
+      `⏳ ${APP_NOTIFICATION_NAME}: Waiting for user input`,
+      `${resolvedThreadTitle} needs your input.`,
+      summarizeQuestions(activity),
+    ]);
   }
 
   if (activity.kind === "approval.requested") {
-    return `${APP_NOTIFICATION_NAME}: Codex needs approval\n${resolvedThreadTitle}: ${activity.summary}`;
+    return compactLines([
+      `⏳ ${APP_NOTIFICATION_NAME}: Waiting for user input`,
+      `${resolvedThreadTitle} needs approval.`,
+      activity.summary,
+    ]);
   }
 
   return null;
@@ -289,11 +426,11 @@ const makeTelegramNotifications = Effect.gen(function* () {
 
   const sendOrchestrationNotification: TelegramNotificationsShape["sendOrchestrationNotification"] = (
     event,
-    threadTitle,
+    thread,
   ) =>
     Effect.gen(function* () {
       const current = yield* Ref.get(settingsRef);
-      const message = buildTelegramNotificationText(event, threadTitle);
+      const message = buildTelegramNotificationText(event, thread);
       if (!message) {
         return;
       }
@@ -310,7 +447,7 @@ const makeTelegramNotifications = Effect.gen(function* () {
           Effect.logWarning("Failed to send Telegram notification.").pipe(
             Effect.annotateLogs({
               detail: error.message,
-              threadTitle: threadTitle ?? "",
+              threadTitle: thread?.title ?? "",
             }),
           ),
         ),
