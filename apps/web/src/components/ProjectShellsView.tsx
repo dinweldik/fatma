@@ -444,8 +444,10 @@ export default function ProjectShellsView({
 }) {
   const navigate = useNavigate();
   const [focusRequestId, setFocusRequestId] = useState(0);
-  const collection = useProjectShellStore((state) =>
-    selectProjectShellCollection(state.shellStateByProjectId, project.id),
+  const shellStateByProjectId = useProjectShellStore((state) => state.shellStateByProjectId);
+  const collection = useMemo(
+    () => selectProjectShellCollection(shellStateByProjectId, project.id),
+    [project.id, shellStateByProjectId],
   );
   const setActiveShell = useProjectShellStore((state) => state.setActiveShell);
   const { data: keybindings = EMPTY_KEYBINDINGS } = useQuery({
@@ -455,6 +457,7 @@ export default function ProjectShellsView({
 
   const activeShell =
     collection.shells.find((shell) => shell.id === shellId) ?? collection.shells[0] ?? null;
+  const activeShellId = activeShell?.id ?? null;
 
   const openShell = useCallback(
     async (nextShellId: string) => {
@@ -557,11 +560,11 @@ export default function ProjectShellsView({
   }, [activeShell, collection.shells.length, createShellAndOpen, navigate, project.id, shellId]);
 
   useEffect(() => {
-    if (!activeShell) {
+    if (!activeShellId || collection.activeShellId === activeShellId) {
       return;
     }
-    setActiveShell(project.id, activeShell.id);
-  }, [activeShell, project.id, setActiveShell]);
+    setActiveShell(project.id, activeShellId);
+  }, [activeShellId, collection.activeShellId, project.id, setActiveShell]);
 
   useEffect(() => {
     const isTerminalFocused = (): boolean => {
