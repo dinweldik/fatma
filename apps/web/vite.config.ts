@@ -1,7 +1,14 @@
+import { readFileSync } from "node:fs";
+
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { tanstackRouter } from "@tanstack/router-plugin/vite";
-import { defineConfig } from "vite";
+import { defineConfig, type Plugin } from "vite";
+
+const webPackageJson = JSON.parse(
+  readFileSync(new URL("./package.json", import.meta.url), "utf8"),
+) as { version: string };
+const appVersion = webPackageJson.version;
 
 const port = Number(process.env.PORT ?? 5733);
 const host = process.env.T3CODE_HOST?.trim() || "localhost";
@@ -19,6 +26,20 @@ const isWildcardHost = (value: string): boolean =>
 const hmrHost = isDesktopMode ? "localhost" : isWildcardHost(host) ? undefined : host;
 const hmr = hmrHost ? { protocol: "ws", host: hmrHost } : { protocol: "ws" };
 
+function emitPwaVersion(): Plugin {
+  return {
+    name: "emit-pwa-version",
+    apply: "build",
+    generateBundle() {
+      this.emitFile({
+        type: "asset",
+        fileName: "pwa-version.json",
+        source: `${JSON.stringify({ appVersion }, null, 2)}\n`,
+      });
+    },
+  };
+}
+
 export default defineConfig({
   plugins: [
     tanstackRouter(),
@@ -28,6 +49,7 @@ export default defineConfig({
       },
     }),
     tailwindcss(),
+    emitPwaVersion(),
   ],
   optimizeDeps: {
     include: ["@pierre/diffs", "@pierre/diffs/react", "@pierre/diffs/worker/worker.js"],
@@ -35,6 +57,7 @@ export default defineConfig({
   define: {
     // In dev mode, tell the web app where the WebSocket server lives
     "import.meta.env.VITE_WS_URL": JSON.stringify(process.env.VITE_WS_URL ?? ""),
+    __APP_VERSION__: JSON.stringify(appVersion),
   },
   experimental: {
     enableNativePlugin: true,

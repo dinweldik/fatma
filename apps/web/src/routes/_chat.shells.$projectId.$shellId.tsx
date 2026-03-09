@@ -30,7 +30,7 @@ function ProjectShellRouteView() {
   }
 
   return (
-    <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none bg-background pt-[var(--safe-area-inset-top)] pb-[var(--safe-area-inset-bottom)] text-foreground">
+    <SidebarInset className="app-mobile-viewport min-h-0 overflow-hidden overscroll-y-none bg-background pt-[var(--safe-area-inset-top)] pb-[var(--safe-area-inset-bottom)] text-foreground">
       <ProjectShellsView project={project} shellId={shellId} />
     </SidebarInset>
   );

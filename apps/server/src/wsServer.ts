@@ -213,6 +213,35 @@ function toPosixRelativePath(input: string): string {
   return input.replaceAll("\\", "/");
 }
 
+function resolveStaticFileHeaders(staticRelativePath: string): Record<string, string> {
+  const normalizedPath = toPosixRelativePath(staticRelativePath).replace(/^\/+/, "");
+
+  if (normalizedPath.startsWith("assets/")) {
+    return {
+      "Cache-Control": "public, max-age=31536000, immutable",
+    };
+  }
+
+  const headers: Record<string, string> = {
+    "Cache-Control": "no-cache",
+  };
+  if (normalizedPath === "sw.js") {
+    headers["Service-Worker-Allowed"] = "/";
+  }
+  return headers;
+}
+
+function resolveStaticFileContentType(params: {
+  staticRelativePath: string;
+  fallbackContentType: string;
+}): string {
+  const normalizedPath = toPosixRelativePath(params.staticRelativePath).replace(/^\/+/, "");
+  if (normalizedPath.endsWith(".webmanifest")) {
+    return "application/manifest+json";
+  }
+  return params.fallbackContentType;
+}
+
 function resolvePathWithinRoot(params: {
   rootPath: string;
   targetPath?: string;
@@ -660,11 +689,21 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
             respond(404, { "Content-Type": "text/plain" }, "Not Found");
             return;
           }
-          respond(200, { "Content-Type": "text/html; charset=utf-8" }, indexData);
+          respond(
+            200,
+            {
+              "Content-Type": "text/html; charset=utf-8",
+              ...resolveStaticFileHeaders("index.html"),
+            },
+            indexData,
+          );
           return;
         }
 
-        const contentType = Mime.getType(filePath) ?? "application/octet-stream";
+        const contentType = resolveStaticFileContentType({
+          staticRelativePath,
+          fallbackContentType: Mime.getType(filePath) ?? "application/octet-stream",
+        });
         const data = yield* fileSystem
           .readFile(filePath)
           .pipe(Effect.catch(() => Effect.succeed(null)));
@@ -672,7 +711,7 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
           respond(500, { "Content-Type": "text/plain" }, "Internal Server Error");
           return;
         }
-        respond(200, { "Content-Type": contentType }, data);
+        respond(200, { "Content-Type": contentType, ...resolveStaticFileHeaders(staticRelativePath) }, data);
       }),
     ).catch(() => {
       if (!res.headersSent) {

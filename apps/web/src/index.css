@@ -63,6 +63,8 @@
 
 :root {
   color-scheme: light;
+  --app-mobile-keyboard-inset: 0px;
+  --app-mobile-viewport-height: 100dvh;
   --safe-area-inset-top: env(safe-area-inset-top, 0px);
   --safe-area-inset-right: env(safe-area-inset-right, 0px);
   --safe-area-inset-bottom: env(safe-area-inset-bottom, 0px);
@@ -214,6 +216,10 @@ input {
 
 .turn-chip-strip::-webkit-scrollbar {
   display: none;
+}
+
+.app-mobile-viewport {
+  height: var(--app-mobile-viewport-height, 100dvh);
 }
 
 /* Terminal drawer scrollbar parity with chat */

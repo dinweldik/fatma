@@ -44,14 +44,22 @@ The frontend listens on `http://localhost:5733` by default and the backend on `w
 
 ### Accessing from other devices
 
-To surface the UI on a phone without republishing, run the stack locally and proxy the ports over your VPN of choice. For example, with Tailscale:
+For the best mobile and PWA experience, use one HTTPS origin for both the UI and the server. The easiest options are:
+
+- `npx @dinweldik/6d --host 0.0.0.0 --no-browser`
+- `bun run dev:single`
+
+Then publish that single local port through Tailscale Serve:
 
 ```bash
-tailscale serve https://sixd.example 5733
-tailscale serve https://sixd-example-ws.example 3773
+tailscale serve https://sixd.example 3773
 ```
 
-The client rewrites `localhost` hosts to your browser’s origin and upgrades to `wss`, so just open `https://sixd.example` on your phone after both ports are forwarded. If you need to target a different WebSocket host, set `VITE_WS_URL` before running `bun run dev`.
+Open `https://sixd.example` on your phone, then install it from the browser UI. This keeps the service worker, manifest, and WebSocket traffic on one stable origin, which is what you want for a standalone app.
+
+If you are actively iterating on the frontend with `bun run dev`, keep using the split Vite + backend setup, but treat that as a development workflow rather than the installable mobile path. The client can still normalize `localhost` hosts and upgrade to `wss`, but the best install/update behavior comes from the single-origin setup above.
+
+See [docs/pwa.md](./docs/pwa.md) for the recommended install and update flow.
 
 ### Notifications
 

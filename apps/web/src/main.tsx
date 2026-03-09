@@ -9,6 +9,7 @@ import "./index.css";
 import { isElectron } from "./env";
 import { getRouter } from "./router";
 import { APP_DISPLAY_NAME } from "./branding";
+import { PwaProvider } from "./pwa";
 
 const history = isElectron ? createHashHistory() : createBrowserHistory();
 
@@ -18,6 +19,8 @@ document.title = APP_DISPLAY_NAME;
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
-    <RouterProvider router={router} />
+    <PwaProvider>
+      <RouterProvider router={router} />
+    </PwaProvider>
   </React.StrictMode>,
 );

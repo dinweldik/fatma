@@ -15,6 +15,7 @@ import { isElectron } from "../env";
 import { useTheme } from "../hooks/useTheme";
 import { serverConfigQueryOptions, serverQueryKeys } from "../lib/serverReactQuery";
 import { ensureNativeApi } from "../nativeApi";
+import { usePwa } from "../pwa";
 import { preferredTerminalEditor } from "../terminal-links";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
@@ -98,8 +99,10 @@ function SettingsRouteView() {
   const { settings, defaults, updateSettings } = useAppSettings();
   const queryClient = useQueryClient();
   const serverConfigQuery = useQuery(serverConfigQueryOptions());
+  const pwa = usePwa();
   const [isOpeningKeybindings, setIsOpeningKeybindings] = useState(false);
   const [openKeybindingsError, setOpenKeybindingsError] = useState<string | null>(null);
+  const [pwaInstallStatus, setPwaInstallStatus] = useState<string | null>(null);
   const [customModelInputByProvider, setCustomModelInputByProvider] = useState<
     Record<ProviderKind, string>
   >({
@@ -268,9 +271,47 @@ function SettingsRouteView() {
     !sendTestTelegramNotificationMutation.isPending;
   const isTelegramBusy =
     saveTelegramSettingsMutation.isPending || sendTestTelegramNotificationMutation.isPending;
+  const effectivePwaVersion =
+    pwa.latestVersion && pwa.latestVersion !== pwa.currentVersion
+      ? `${pwa.currentVersion} -> ${pwa.latestVersion}`
+      : pwa.currentVersion;
+
+  const installPwa = useCallback(() => {
+    setPwaInstallStatus(null);
+    void pwa
+      .promptInstall()
+      .then((choice) => {
+        if (!choice) {
+          setPwaInstallStatus("Use your browser install action if no install prompt appears.");
+          return;
+        }
+        if (choice.outcome === "accepted") {
+          setPwaInstallStatus("Install prompt accepted. Finish adding 6d from your browser UI.");
+          return;
+        }
+        setPwaInstallStatus("Install prompt dismissed.");
+      })
+      .catch((error) => {
+        setPwaInstallStatus(toErrorMessage(error, "Unable to open the install prompt."));
+      });
+  }, [pwa]);
+
+  const refreshPwa = useCallback(() => {
+    setPwaInstallStatus(null);
+    void pwa.checkForUpdates().catch((error) => {
+      setPwaInstallStatus(toErrorMessage(error, "Unable to check for updates."));
+    });
+  }, [pwa]);
+
+  const applyPwaUpdate = useCallback(() => {
+    setPwaInstallStatus(null);
+    void pwa.applyUpdate().catch((error) => {
+      setPwaInstallStatus(toErrorMessage(error, "Unable to apply the latest web app update."));
+    });
+  }, [pwa]);
 
   return (
-    <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground isolate">
+    <SidebarInset className="app-mobile-viewport min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground isolate">
       <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-background text-foreground">
         {isElectron && (
           <div className="drag-region flex h-[52px] shrink-0 items-center border-b border-border px-5">
@@ -387,6 +428,84 @@ function SettingsRouteView() {
                     Reset codex overrides
                   </Button>
                 </div>
+              </div>
+            </section>
+
+            <section className="rounded-2xl border border-border bg-card p-5">
+              <div className="mb-4">
+                <h2 className="text-sm font-medium text-foreground">Web App</h2>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Install 6d as a standalone app shell and keep the installed version current.
+                </p>
+              </div>
+
+              <div className="space-y-4">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="rounded-lg border border-border bg-background px-3 py-3">
+                    <p className="text-xs font-medium text-foreground">Shell status</p>
+                    <p className="mt-1 text-sm text-foreground">
+                      {pwa.isInstalled ? "Installed standalone app" : "Browser tab"}
+                    </p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {pwa.updateAvailable
+                        ? "A newer shell is ready to activate."
+                        : "Updates are checked automatically while the app is open."}
+                    </p>
+                  </div>
+
+                  <div className="rounded-lg border border-border bg-background px-3 py-3">
+                    <p className="text-xs font-medium text-foreground">Version</p>
+                    <p className="mt-1 text-sm font-medium text-foreground">
+                      <code>{effectivePwaVersion}</code>
+                    </p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Current build {pwa.currentVersion}
+                      {pwa.latestVersion ? `, latest seen ${pwa.latestVersion}` : ""}.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="rounded-lg border border-border bg-background px-3 py-3 text-xs text-muted-foreground">
+                  <p>{pwa.supportDetails}</p>
+                  {pwa.isSupported ? (
+                    <p className="mt-2">
+                      Install instructions:{" "}
+                      <span className="text-foreground">{pwa.installInstructions}</span>
+                    </p>
+                  ) : null}
+                </div>
+
+                <div className="rounded-lg border border-border bg-background px-3 py-3 text-xs text-muted-foreground">
+                  <p>
+                    Best mobile setup: open the same HTTPS URL each time, install from that origin,
+                    and use Settings or the update toast to reload when a new version is available.
+                  </p>
+                </div>
+
+                <div className="flex flex-wrap justify-end gap-2">
+                  <Button
+                    size="xs"
+                    variant="outline"
+                    onClick={refreshPwa}
+                    disabled={!pwa.isSupported || pwa.isCheckingForUpdates}
+                  >
+                    {pwa.isCheckingForUpdates ? "Checking..." : "Check for updates"}
+                  </Button>
+                  {pwa.updateAvailable ? (
+                    <Button size="xs" onClick={applyPwaUpdate} disabled={!pwa.isSupported}>
+                      Reload to update
+                    </Button>
+                  ) : null}
+                  {!pwa.isInstalled && pwa.canInstall ? (
+                    <Button size="xs" variant="outline" onClick={installPwa}>
+                      Install app
+                    </Button>
+                  ) : null}
+                </div>
+
+                {pwaInstallStatus ? (
+                  <p className="text-xs text-muted-foreground">{pwaInstallStatus}</p>
+                ) : null}
               </div>
             </section>
 

@@ -746,7 +746,7 @@ function ComposerPromptEditorInner({
         contentEditable={
           <ContentEditable
             className={cn(
-              "block max-h-[200px] min-h-17.5 w-full overflow-y-auto whitespace-pre-wrap break-words bg-transparent text-[14px] leading-relaxed text-foreground focus:outline-none",
+              "block max-h-[min(16rem,40dvh)] min-h-14 w-full overflow-y-auto whitespace-pre-wrap break-words bg-transparent text-[14px] leading-[1.5] text-foreground focus:outline-none sm:max-h-[200px] sm:min-h-17.5 sm:leading-relaxed",
               className,
             )}
             aria-placeholder={placeholder}
@@ -755,7 +755,7 @@ function ComposerPromptEditorInner({
           />
         }
         placeholder={
-          <div className="pointer-events-none absolute inset-0 text-[14px] leading-relaxed text-muted-foreground/35">
+          <div className="pointer-events-none absolute inset-0 text-[14px] leading-[1.5] text-muted-foreground/35 sm:leading-relaxed">
             {placeholder}
           </div>
         }

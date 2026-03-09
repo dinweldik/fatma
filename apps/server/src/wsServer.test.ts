@@ -615,6 +615,7 @@ describe("WebSocket Server", () => {
     const response = await fetch(`http://127.0.0.1:${port}/`);
     expect(response.status).toBe(200);
     expect(await response.text()).toContain("static-root");
+    expect(response.headers.get("cache-control")).toBe("no-cache");
   });
 
   it("rejects static path traversal attempts", async () => {
@@ -630,6 +631,58 @@ describe("WebSocket Server", () => {
     const response = await requestPath(port, "/..%2f..%2fetc/passwd");
     expect(response.statusCode).toBe(400);
     expect(response.body).toBe("Invalid static file path");
+  });
+
+  it("serves hashed static assets with immutable cache headers", async () => {
+    const stateDir = makeTempDir("t3code-state-static-assets-");
+    const staticDir = makeTempDir("t3code-static-assets-");
+    const assetsDir = path.join(staticDir, "assets");
+    fs.mkdirSync(assetsDir, { recursive: true });
+    fs.writeFileSync(path.join(staticDir, "index.html"), "<h1>static-root</h1>", "utf8");
+    fs.writeFileSync(path.join(assetsDir, "app-abc123.js"), "console.log('hi');", "utf8");
+
+    server = await createTestServer({ cwd: "/test/project", stateDir, staticDir });
+    const addr = server.address();
+    const port = typeof addr === "object" && addr !== null ? addr.port : 0;
+    expect(port).toBeGreaterThan(0);
+
+    const response = await requestPath(port, "/assets/app-abc123.js");
+    expect(response.statusCode).toBe(200);
+    expect(response.headers["cache-control"]).toBe("public, max-age=31536000, immutable");
+  });
+
+  it("serves the service worker with revalidation headers", async () => {
+    const stateDir = makeTempDir("t3code-state-static-sw-");
+    const staticDir = makeTempDir("t3code-static-sw-");
+    fs.writeFileSync(path.join(staticDir, "index.html"), "<h1>static-root</h1>", "utf8");
+    fs.writeFileSync(path.join(staticDir, "sw.js"), "self.addEventListener('fetch', () => {});", "utf8");
+
+    server = await createTestServer({ cwd: "/test/project", stateDir, staticDir });
+    const addr = server.address();
+    const port = typeof addr === "object" && addr !== null ? addr.port : 0;
+    expect(port).toBeGreaterThan(0);
+
+    const response = await requestPath(port, "/sw.js");
+    expect(response.statusCode).toBe(200);
+    expect(response.headers["cache-control"]).toBe("no-cache");
+    expect(response.headers["service-worker-allowed"]).toBe("/");
+  });
+
+  it("serves the web manifest with the manifest content type", async () => {
+    const stateDir = makeTempDir("t3code-state-static-manifest-");
+    const staticDir = makeTempDir("t3code-static-manifest-");
+    fs.writeFileSync(path.join(staticDir, "index.html"), "<h1>static-root</h1>", "utf8");
+    fs.writeFileSync(path.join(staticDir, "manifest.webmanifest"), '{"name":"6d"}', "utf8");
+
+    server = await createTestServer({ cwd: "/test/project", stateDir, staticDir });
+    const addr = server.address();
+    const port = typeof addr === "object" && addr !== null ? addr.port : 0;
+    expect(port).toBeGreaterThan(0);
+
+    const response = await requestPath(port, "/manifest.webmanifest");
+    expect(response.statusCode).toBe(200);
+    expect(response.headers["content-type"]).toBe("application/manifest+json");
+    expect(response.headers["cache-control"]).toBe("no-cache");
   });
 
   it("bootstraps the cwd project on startup when enabled", async () => {

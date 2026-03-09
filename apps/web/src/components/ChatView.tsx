@@ -101,8 +101,10 @@ import {
   type TurnDiffSummary,
 } from "../types";
 import { basenameOfPath, getVscodeIconUrlForEntry } from "../vscode-icons";
+import { useMobileEdgeSwipe } from "../hooks/useMobileEdgeSwipe";
 import { useTheme } from "../hooks/useTheme";
 import { useTurnDiffSummaries } from "../hooks/useTurnDiffSummaries";
+import { useMobileViewport } from "../mobileViewport";
 import {
   buildTurnDiffTree,
   summarizeTurnDiffStats,
@@ -170,7 +172,7 @@ import {
   runProjectScriptInShell,
 } from "../projectShellRunner";
 import { projectScriptIdFromCommand, setupProjectScript } from "~/projectScripts";
-import { SidebarTrigger } from "./ui/sidebar";
+import { SidebarTrigger, useSidebar } from "./ui/sidebar";
 import { readNativeApi } from "~/nativeApi";
 import {
   getAppModelOptions,
@@ -548,6 +550,8 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const setStoreThreadBranch = useStore((store) => store.setThreadBranch);
   const { settings } = useAppSettings();
   const navigate = useNavigate();
+  const { openMobile: sidebarOpenMobile, setOpenMobile } = useSidebar();
+  const mobileViewport = useMobileViewport();
   const { resolvedTheme } = useTheme();
   const queryClient = useQueryClient();
   const createWorktreeMutation = useMutation(gitCreateWorktreeMutationOptions({ queryClient }));
@@ -607,6 +611,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const [attachmentPreviewHandoffByMessageId, setAttachmentPreviewHandoffByMessageId] = useState<
     Record<string, string[]>
   >({});
+  const [sourceControlOpen, setSourceControlOpen] = useState(false);
   const [composerCursor, setComposerCursor] = useState(() => prompt.length);
   const [composerTrigger, setComposerTrigger] = useState<ComposerTrigger | null>(() =>
     detectComposerTrigger(prompt, prompt.length),
@@ -1096,6 +1101,18 @@ export default function ChatView({ threadId }: ChatViewProps) {
     timelineEntries,
   ]);
   const gitCwd = activeThread?.worktreePath ?? activeProject?.cwd ?? null;
+  const canOpenSourceControl = gitCwd !== null;
+  const mobileEdgeSwipeHandlers = useMobileEdgeSwipe({
+    enabled: mobileViewport.isMobile,
+    leftEnabled: !sidebarOpenMobile,
+    rightEnabled: !sourceControlOpen && canOpenSourceControl,
+    onSwipeFromLeftEdge: () => {
+      setOpenMobile(true);
+    },
+    onSwipeFromRightEdge: () => {
+      setSourceControlOpen(true);
+    },
+  });
   const composerTriggerKind = composerTrigger?.kind ?? null;
   const pathTriggerQuery = composerTrigger?.kind === "path" ? composerTrigger.query : "";
   const isPathTrigger = composerTriggerKind === "path";
@@ -1598,6 +1615,46 @@ export default function ChatView({ threadId }: ChatViewProps) {
       window.cancelAnimationFrame(frame);
     };
   }, [activeThread?.id, focusComposer]);
+
+  useEffect(() => {
+    if (canOpenSourceControl || !sourceControlOpen) {
+      return;
+    }
+    setSourceControlOpen(false);
+  }, [canOpenSourceControl, sourceControlOpen]);
+
+  useEffect(() => {
+    setSourceControlOpen(false);
+  }, [activeThread?.id]);
+
+  useEffect(() => {
+    if (!mobileViewport.isMobile || mobileViewport.viewportHeight === null) {
+      return;
+    }
+    if (
+      !shouldAutoScrollRef.current &&
+      !composerFormRef.current?.contains(document.activeElement)
+    ) {
+      return;
+    }
+
+    const frameId = window.requestAnimationFrame(() => {
+      scheduleStickToBottom();
+    });
+    const timeoutId = window.setTimeout(() => {
+      scheduleStickToBottom();
+    }, 96);
+
+    return () => {
+      window.cancelAnimationFrame(frameId);
+      window.clearTimeout(timeoutId);
+    };
+  }, [
+    mobileViewport.isMobile,
+    mobileViewport.keyboardInset,
+    mobileViewport.viewportHeight,
+    scheduleStickToBottom,
+  ]);
 
   useEffect(() => {
     composerImagesRef.current = composerImages;
@@ -2960,7 +3017,11 @@ export default function ChatView({ threadId }: ChatViewProps) {
   // Empty state: no active thread
   if (!activeThread) {
     return (
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-background text-muted-foreground/40">
+      <div
+        className="flex min-h-0 min-w-0 flex-1 flex-col bg-background text-muted-foreground/40"
+        style={mobileViewport.isMobile ? { touchAction: "pan-y pinch-zoom" } : undefined}
+        {...mobileEdgeSwipeHandlers}
+      >
         {!isElectron && (
           <header className="border-b border-border px-3 py-2 md:hidden">
             <div className="flex items-center gap-2">
@@ -2984,12 +3045,16 @@ export default function ChatView({ threadId }: ChatViewProps) {
   }
 
   return (
-    <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden bg-background">
+    <div
+      className="flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden bg-background"
+      style={mobileViewport.isMobile ? { touchAction: "pan-y pinch-zoom" } : undefined}
+      {...mobileEdgeSwipeHandlers}
+    >
       {/* Top bar */}
       <header
         className={cn(
-          "border-b border-border px-3 sm:px-5",
-          isElectron ? "drag-region flex h-[52px] items-center" : "py-2 sm:py-3",
+          "border-b border-border px-2.5 sm:px-5",
+          isElectron ? "drag-region flex h-[52px] items-center" : "py-1.5 sm:py-3",
         )}
       >
         <ChatHeader
@@ -2997,6 +3062,8 @@ export default function ChatView({ threadId }: ChatViewProps) {
           activeProjectName={activeProject?.name}
           isGitRepo={isGitRepo}
           gitCwd={gitCwd}
+          sourceControlOpen={sourceControlOpen}
+          onSourceControlOpenChange={setSourceControlOpen}
           onOpenShells={() => {
             void openProjectShellView();
           }}
@@ -3011,7 +3078,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
       {/* Messages */}
       <div
         ref={setMessagesScrollContainerRef}
-        className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-y-contain px-3 py-3 sm:px-5 sm:py-4"
+        className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-y-contain px-2.5 py-2 sm:px-5 sm:py-4"
         onScroll={onMessagesScroll}
         onClickCapture={onMessagesClickCapture}
         onWheel={onMessagesWheel}
@@ -3049,15 +3116,17 @@ export default function ChatView({ threadId }: ChatViewProps) {
       </div>
 
       {/* Input bar */}
-      <div className={cn("px-3 pt-1.5 sm:px-5 sm:pt-2", isGitRepo ? "pb-1" : "pb-3 sm:pb-4")}>
+      <div
+        className={cn("px-2 pt-1 sm:px-5 sm:pt-2", isGitRepo ? "pb-1" : "pb-2.5 sm:pb-4")}
+      >
         <form
           ref={composerFormRef}
           onSubmit={onSend}
-          className="mx-auto w-full min-w-0 max-w-3xl"
+          className="mx-auto w-full min-w-0 max-w-full sm:max-w-3xl"
           data-chat-composer-form="true"
         >
           <div
-            className={`group rounded-[20px] border bg-card transition-colors duration-200 focus-within:border-ring/45 ${
+            className={`group rounded-[18px] border bg-card transition-colors duration-200 focus-within:border-ring/45 sm:rounded-[20px] ${
               isDragOverComposer ? "border-primary/70 bg-accent/30" : "border-border"
             }`}
             onDragEnter={onComposerDragEnter}
@@ -3066,14 +3135,14 @@ export default function ChatView({ threadId }: ChatViewProps) {
             onDrop={onComposerDrop}
           >
             {activePendingApproval ? (
-              <div className="rounded-t-[19px] border-b border-border/65 bg-muted/20">
+              <div className="rounded-t-[17px] border-b border-border/65 bg-muted/20 sm:rounded-t-[19px]">
                 <ComposerPendingApprovalPanel
                   approval={activePendingApproval}
                   pendingCount={pendingApprovals.length}
                 />
               </div>
             ) : pendingUserInputs.length > 0 ? (
-              <div className="rounded-t-[19px] border-b border-border/65 bg-muted/20">
+              <div className="rounded-t-[17px] border-b border-border/65 bg-muted/20 sm:rounded-t-[19px]">
                 <ComposerPendingUserInputPanel
                   pendingUserInputs={pendingUserInputs}
                   respondingRequestIds={respondingUserInputRequestIds}
@@ -3083,7 +3152,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
                 />
               </div>
             ) : showPlanFollowUpPrompt && activeProposedPlan ? (
-              <div className="rounded-t-[19px] border-b border-border/65 bg-muted/20">
+              <div className="rounded-t-[17px] border-b border-border/65 bg-muted/20 sm:rounded-t-[19px]">
                 <ComposerPlanFollowUpBanner
                   key={activeProposedPlan.id}
                   planTitle={proposedPlanTitle(activeProposedPlan.planMarkdown) ?? null}
@@ -3094,8 +3163,8 @@ export default function ChatView({ threadId }: ChatViewProps) {
             {/* Textarea area */}
             <div
               className={cn(
-                "relative px-3 pb-2 sm:px-4",
-                hasComposerHeader ? "pt-2.5 sm:pt-3" : "pt-3.5 sm:pt-4",
+                "relative px-2.5 pb-1.5 sm:px-4 sm:pb-2",
+                hasComposerHeader ? "pt-2 sm:pt-3" : "pt-2.5 sm:pt-4",
               )}
             >
               {composerMenuOpen && !isComposerApprovalState && (
@@ -3115,11 +3184,11 @@ export default function ChatView({ threadId }: ChatViewProps) {
               {!isComposerApprovalState &&
                 pendingUserInputs.length === 0 &&
                 composerImages.length > 0 && (
-                  <div className="mb-3 flex flex-wrap gap-2">
+                  <div className="mb-2.5 flex flex-wrap gap-1.5 sm:mb-3 sm:gap-2">
                     {composerImages.map((image) => (
                       <div
                         key={image.id}
-                        className="relative h-16 w-16 overflow-hidden rounded-lg border border-border/80 bg-background"
+                        className="relative h-14 w-14 overflow-hidden rounded-lg border border-border/80 bg-background sm:h-16 sm:w-16"
                       >
                         {image.previewUrl ? (
                           <button
@@ -3216,8 +3285,8 @@ export default function ChatView({ threadId }: ChatViewProps) {
                 />
               </div>
             ) : (
-              <div className="flex flex-col gap-2 px-2.5 pb-2.5 sm:flex-row sm:items-center sm:justify-between sm:gap-0 sm:px-3 sm:pb-3">
-                <div className="flex min-w-0 items-center gap-1 overflow-x-auto pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:min-w-max sm:flex-1 sm:overflow-visible sm:pb-0">
+              <div className="flex flex-col gap-1.5 px-2 pb-2 sm:flex-row sm:items-center sm:justify-between sm:gap-0 sm:px-3 sm:pb-3">
+                <div className="flex min-w-0 items-center gap-0.5 overflow-x-auto pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:min-w-max sm:flex-1 sm:gap-1 sm:overflow-visible sm:pb-0">
                   {/* Provider/model picker */}
                   <ProviderModelPicker
                     provider={selectedProvider}
@@ -3540,6 +3609,8 @@ interface ChatHeaderProps {
   isGitRepo: boolean;
   gitCwd: string | null;
   onOpenShells: () => void;
+  onSourceControlOpenChange: (open: boolean) => void;
+  sourceControlOpen: boolean;
 }
 
 const ChatHeader = memo(function ChatHeader({
@@ -3548,10 +3619,12 @@ const ChatHeader = memo(function ChatHeader({
   isGitRepo,
   gitCwd,
   onOpenShells,
+  onSourceControlOpenChange,
+  sourceControlOpen,
 }: ChatHeaderProps) {
   return (
-    <div className="flex min-w-0 flex-1 flex-col gap-2 sm:flex-row sm:items-center">
-      <div className="flex min-w-0 items-center gap-2 overflow-hidden sm:flex-1 sm:gap-3">
+    <div className="flex min-w-0 flex-1 flex-col gap-1.5 sm:flex-row sm:items-center">
+      <div className="flex min-w-0 items-center gap-1.5 overflow-hidden sm:flex-1 sm:gap-3">
         <SidebarTrigger className="size-7 shrink-0 md:hidden" />
         <h2
           className="min-w-0 shrink truncate text-sm font-medium text-foreground"
@@ -3560,7 +3633,7 @@ const ChatHeader = memo(function ChatHeader({
           {activeThreadTitle}
         </h2>
         {activeProjectName && (
-          <Badge variant="outline" className="max-w-28 shrink-0 truncate">
+          <Badge variant="outline" className="max-w-24 shrink-0 truncate sm:max-w-28">
             {activeProjectName}
           </Badge>
         )}
@@ -3570,14 +3643,21 @@ const ChatHeader = memo(function ChatHeader({
           </Badge>
         )}
       </div>
-      <div className="@container/header-actions -mx-1 flex min-w-0 items-center gap-2 overflow-x-auto px-1 pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:mx-0 sm:flex-1 sm:justify-end sm:overflow-visible sm:px-0 sm:pb-0 @sm/header-actions:gap-3">
+      <div className="@container/header-actions -mx-0.5 flex min-w-0 items-center gap-1.5 overflow-x-auto px-0.5 pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:mx-0 sm:flex-1 sm:justify-end sm:gap-2 sm:overflow-visible sm:px-0 sm:pb-0 @sm/header-actions:gap-3">
         {activeProjectName && (
           <Button size="xs" variant="outline" onClick={onOpenShells}>
             <TerminalIcon className="size-3.5" />
             <span className="sr-only @sm/header-actions:not-sr-only">Shells</span>
           </Button>
         )}
-        {activeProjectName && <GitActionsControl gitCwd={gitCwd} projectName={activeProjectName} />}
+        {activeProjectName && (
+          <GitActionsControl
+            gitCwd={gitCwd}
+            open={sourceControlOpen}
+            onOpenChange={onSourceControlOpenChange}
+            projectName={activeProjectName}
+          />
+        )}
       </div>
     </div>
   );

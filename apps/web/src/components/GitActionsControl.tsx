@@ -37,6 +37,8 @@ import { toastManager } from "./ui/toast";
 interface GitActionsControlProps {
   gitCwd: string | null;
   projectName?: string;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }
 
 type ChangeScope = Extract<GitFileDiffScope, "staged" | "unstaged">;
@@ -607,13 +609,25 @@ function SourceControlPanel({
   );
 }
 
-export default function GitActionsControl({ gitCwd, projectName }: GitActionsControlProps) {
+export default function GitActionsControl({
+  gitCwd,
+  projectName,
+  open: openProp,
+  onOpenChange,
+}: GitActionsControlProps) {
   const queryClient = useQueryClient();
   const { resolvedTheme } = useTheme();
   const isMobile = useMediaQuery("(max-width: 767px)");
-  const [open, setOpen] = useState(false);
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
   const [commitMessage, setCommitMessage] = useState("");
   const [selectedTarget, setSelectedTarget] = useState<SelectedFileTarget | null>(null);
+  const open = openProp ?? uncontrolledOpen;
+  const setOpen = (nextOpen: boolean) => {
+    onOpenChange?.(nextOpen);
+    if (openProp === undefined) {
+      setUncontrolledOpen(nextOpen);
+    }
+  };
 
   const branchListQuery = useQuery(gitBranchesQueryOptions(gitCwd));
   const initMutation = useMutation(gitInitMutationOptions({ cwd: gitCwd, queryClient }));
@@ -786,9 +800,9 @@ export default function GitActionsControl({ gitCwd, projectName }: GitActionsCon
     return (
       <Sheet open={open} onOpenChange={setOpen}>
         <SheetTrigger render={trigger} />
-        <SheetPopup side="right" className="h-dvh w-full max-w-none p-0">
+        <SheetPopup side="right" className="app-mobile-viewport w-full max-w-none p-0">
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 sm:p-5">
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-3 sm:p-5">
               {panel}
             </div>
           </div>

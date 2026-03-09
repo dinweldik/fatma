@@ -3,6 +3,7 @@ import { useEffect } from "react";
 
 import { DiffWorkerPoolProvider } from "../components/DiffWorkerPoolProvider";
 import ThreadSidebar from "../components/Sidebar";
+import { MobileViewportProvider } from "../mobileViewport";
 import { Sidebar, SidebarProvider } from "~/components/ui/sidebar";
 
 function ChatRouteLayout() {
@@ -25,18 +26,20 @@ function ChatRouteLayout() {
   }, [navigate]);
 
   return (
-    <SidebarProvider defaultOpen>
-      <Sidebar
-        side="left"
-        collapsible="offcanvas"
-        className="border-r border-border bg-card text-foreground"
-      >
-        <ThreadSidebar />
-      </Sidebar>
-      <DiffWorkerPoolProvider>
-        <Outlet />
-      </DiffWorkerPoolProvider>
-    </SidebarProvider>
+    <MobileViewportProvider>
+      <SidebarProvider defaultOpen>
+        <Sidebar
+          side="left"
+          collapsible="offcanvas"
+          className="border-r border-border bg-card text-foreground"
+        >
+          <ThreadSidebar />
+        </Sidebar>
+        <DiffWorkerPoolProvider>
+          <Outlet />
+        </DiffWorkerPoolProvider>
+      </SidebarProvider>
+    </MobileViewportProvider>
   );
 }
 
