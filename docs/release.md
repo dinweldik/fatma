@@ -74,7 +74,7 @@ bun run publish:npm
 
 What it does:
 
-1. Bumps `apps/server/package.json` to the next patch version by default.
+1. Picks the next available patch version for `apps/server/package.json` by default, accounting for versions already published to npm.
 2. Runs `bun lint`.
 3. Runs `bun typecheck`.
 4. Runs `bun run build` so the packaged web client is rebuilt before publishing.

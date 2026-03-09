@@ -70,7 +70,7 @@ If you see "Checkpoint ref is unavailable for turn X" while looking at the diff 
 
 ### Publishing to npm
 
-Use the root publish command. It bumps `apps/server` to the next patch version by default, runs `bun lint`, runs `bun typecheck`, rebuilds the monorepo so the bundled web client is current, builds the CLI package, writes a temporary `.npmrc` from `NPM_TOKEN`, publishes `fatma-app`, and cleans up the temp auth file afterward.
+Use the root publish command. It picks the next available patch version for `apps/server` by default, taking already-published npm versions into account, then runs `bun lint`, runs `bun typecheck`, rebuilds the monorepo so the bundled web client is current, builds the CLI package, writes a temporary `.npmrc` from `NPM_TOKEN`, publishes `fatma-app`, and cleans up the temp auth file afterward.
 
 ```bash
 bun run publish:npm

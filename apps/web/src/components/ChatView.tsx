@@ -174,7 +174,7 @@ import {
   runProjectScriptInShell,
 } from "../projectShellRunner";
 import { projectScriptIdFromCommand, setupProjectScript } from "~/projectScripts";
-import { SidebarTrigger, useSidebar } from "./ui/sidebar";
+import { useSidebar } from "./ui/sidebar";
 import { readNativeApi } from "~/nativeApi";
 import {
   getAppModelOptions,
@@ -3052,14 +3052,13 @@ export default function ChatView({ threadId }: ChatViewProps) {
   if (!activeThread) {
     return (
       <div
-        className="flex min-h-0 min-w-0 flex-1 flex-col bg-background text-muted-foreground/40"
+        className="flex h-full min-h-0 min-w-0 flex-1 flex-col bg-background text-muted-foreground/40"
         style={mobileViewport.isMobile ? { touchAction: "pan-y pinch-zoom" } : undefined}
         {...mobileEdgeSwipeHandlers}
       >
         {!isElectron && (
           <header className="border-b border-border px-3 py-[calc(var(--safe-area-inset-top)+0.5rem)] md:hidden">
-            <div className="flex items-center gap-2">
-              <SidebarTrigger className="size-7 shrink-0" />
+            <div className="flex items-center">
               <span className="text-sm font-medium text-foreground">Threads</span>
             </div>
           </header>
@@ -3080,7 +3079,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
 
   return (
     <div
-      className="flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden bg-background"
+      className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background"
       style={mobileViewport.isMobile ? { touchAction: "pan-y pinch-zoom" } : undefined}
       {...mobileEdgeSwipeHandlers}
     >
@@ -3877,7 +3876,6 @@ const ChatHeader = memo(function ChatHeader({
   return (
     <div className="flex min-w-0 flex-1 flex-col gap-1.5 sm:flex-row sm:items-center">
       <div className="flex min-w-0 items-center gap-1.5 overflow-hidden sm:flex-1 sm:gap-3">
-        <SidebarTrigger className="size-7 shrink-0 md:hidden" />
         <h2
           className="min-w-0 shrink truncate text-sm font-medium text-foreground"
           title={activeThreadTitle}

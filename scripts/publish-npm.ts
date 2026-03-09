@@ -19,6 +19,12 @@ function fail(message: string): never {
   throw new Error(`[publish-npm] ${message}`);
 }
 
+interface ParsedSemver {
+  readonly major: number;
+  readonly minor: number;
+  readonly patch: number;
+}
+
 function runCommand(command: string, args: ReadonlyArray<string>, cwd: string): void {
   const result = spawnSync(command, args, {
     cwd,
@@ -28,6 +34,30 @@ function runCommand(command: string, args: ReadonlyArray<string>, cwd: string): 
   if (result.status !== 0) {
     fail(`Command failed: ${command} ${args.join(" ")}`);
   }
+}
+
+function runJsonCommand(command: string, args: ReadonlyArray<string>, cwd: string): unknown {
+  const result = spawnSync(command, args, {
+    cwd,
+    stdio: ["ignore", "pipe", "pipe"],
+    env: process.env,
+    encoding: "utf8",
+  });
+
+  if (result.status !== 0) {
+    const output = `${result.stdout ?? ""}\n${result.stderr ?? ""}`.trim();
+    if (/\bE404\b/.test(output) || /\b404\b/.test(output)) {
+      return [];
+    }
+    fail(`Command failed: ${command} ${args.join(" ")}${output ? `\n${output}` : ""}`);
+  }
+
+  const stdout = result.stdout.trim();
+  if (stdout.length === 0) {
+    return [];
+  }
+
+  return JSON.parse(stdout);
 }
 
 function parseArgs(argv: ReadonlyArray<string>): CliOptions {
@@ -97,15 +127,47 @@ function parseArgs(argv: ReadonlyArray<string>): CliOptions {
   };
 }
 
-function bumpVersion(currentVersion: string, bump: CliOptions["bump"]): string {
-  const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(currentVersion.trim());
+function parseSemver(version: string): ParsedSemver | null {
+  const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(version.trim());
   if (!match) {
-    fail(`Current version is not a plain semver version: ${currentVersion}`);
+    return null;
   }
 
-  let major = Number(match[1]);
-  let minor = Number(match[2]);
-  let patch = Number(match[3]);
+  return {
+    major: Number(match[1]),
+    minor: Number(match[2]),
+    patch: Number(match[3]),
+  };
+}
+
+function requireSemver(version: string, label: string): ParsedSemver {
+  const parsed = parseSemver(version);
+  if (!parsed) {
+    fail(`${label} is not a plain semver version: ${version}`);
+  }
+  return parsed;
+}
+
+function compareSemver(left: ParsedSemver, right: ParsedSemver): number {
+  if (left.major !== right.major) {
+    return left.major - right.major;
+  }
+  if (left.minor !== right.minor) {
+    return left.minor - right.minor;
+  }
+  return left.patch - right.patch;
+}
+
+function formatSemver(version: ParsedSemver): string {
+  return `${version.major}.${version.minor}.${version.patch}`;
+}
+
+function bumpVersion(currentVersion: string, bump: CliOptions["bump"]): string {
+  const parsed = requireSemver(currentVersion, "Current version");
+
+  let major = parsed.major;
+  let minor = parsed.minor;
+  let patch = parsed.patch;
 
   switch (bump) {
     case "major":
@@ -125,6 +187,51 @@ function bumpVersion(currentVersion: string, bump: CliOptions["bump"]): string {
   return `${major}.${minor}.${patch}`;
 }
 
+function readPublishedVersions(packageName: string, cwd: string): ReadonlySet<string> {
+  const output = runJsonCommand("npm", ["view", packageName, "versions", "--json"], cwd);
+  if (typeof output === "string") {
+    return new Set([output]);
+  }
+  if (Array.isArray(output) && output.every((value) => typeof value === "string")) {
+    return new Set(output);
+  }
+  fail(`Unexpected npm response while reading versions for ${packageName}.`);
+}
+
+function findHighestPublishedVersion(versions: ReadonlySet<string>): string | null {
+  let highest: ParsedSemver | null = null;
+
+  for (const version of versions) {
+    const parsed = parseSemver(version);
+    if (!parsed) {
+      continue;
+    }
+    if (highest === null || compareSemver(parsed, highest) > 0) {
+      highest = parsed;
+    }
+  }
+
+  return highest ? formatSemver(highest) : null;
+}
+
+function maxVersion(left: string, right: string): string {
+  return compareSemver(requireSemver(left, "Local version"), requireSemver(right, "Published version")) >= 0
+    ? left
+    : right;
+}
+
+function findNextUnpublishedVersion(
+  baseVersion: string,
+  bump: CliOptions["bump"],
+  publishedVersions: ReadonlySet<string>,
+): string {
+  let candidate = bumpVersion(baseVersion, bump);
+  while (publishedVersions.has(candidate)) {
+    candidate = bumpVersion(candidate, bump);
+  }
+  return candidate;
+}
+
 try {
   const options = parseArgs(process.argv.slice(2));
   const repoRoot = process.cwd();
@@ -140,8 +247,24 @@ try {
     fail("NPM_TOKEN is not set in the current shell.");
   }
 
-  const nextVersion = options.version ?? bumpVersion(packageJson.version, options.bump);
+  const publishedVersions = readPublishedVersions(packageJson.name, repoRoot);
+  const highestPublishedVersion = findHighestPublishedVersion(publishedVersions);
+  const versionBase = highestPublishedVersion
+    ? maxVersion(packageJson.version, highestPublishedVersion)
+    : packageJson.version;
+  const nextVersion = options.version ?? findNextUnpublishedVersion(versionBase, options.bump, publishedVersions);
+
+  if (options.version && publishedVersions.has(options.version)) {
+    fail(`Version ${options.version} is already published for ${packageJson.name}.`);
+  }
+
   const nextPackageJsonRaw = `${JSON.stringify({ ...packageJson, version: nextVersion }, null, 2)}\n`;
+
+  if (highestPublishedVersion && versionBase !== packageJson.version) {
+    console.log(
+      `[publish-npm] Registry is ahead of local version ${packageJson.version}; using ${versionBase} as the bump base`,
+    );
+  }
 
   if (packageJson.version === nextVersion) {
     console.log(`[publish-npm] Reusing version ${nextVersion}`);

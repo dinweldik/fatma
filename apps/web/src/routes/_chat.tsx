@@ -47,7 +47,7 @@ function ChatRouteLayout() {
         <ThreadSidebar />
       </Sidebar>
       <DiffWorkerPoolProvider>
-        <div className="relative flex h-full min-h-0 min-w-0 flex-1 flex-col">
+        <div className="relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
           <Outlet />
           <MobileBottomNav />
         </div>

@@ -84,7 +84,6 @@ import {
   SidebarMenuSubButton,
   SidebarMenuSubItem,
   SidebarSeparator,
-  SidebarTrigger,
   useSidebar,
 } from "./ui/sidebar";
 import { formatWorktreePathForDisplay, getOrphanedWorktreePathForThread } from "../worktreeCleanup";
@@ -1212,7 +1211,6 @@ export default function Sidebar() {
 
   const wordmark = (
     <div className={cn("flex items-center gap-2", isMobile && "items-start gap-3")}>
-      <SidebarTrigger className={cn("shrink-0 md:hidden", isMobile && "mt-0.5 size-9 rounded-xl")} />
       <div className={cn("mt-2 ml-1 flex min-w-0 flex-1 items-center gap-1", isMobile && "mt-0 ml-0 flex-col items-start gap-0.5")}>
         <AppWordmark />
         {isMobile ? (

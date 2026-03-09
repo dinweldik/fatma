@@ -46,7 +46,7 @@ import {
 import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "./ui/menu";
-import { SidebarTrigger, useSidebar } from "./ui/sidebar";
+import { useSidebar } from "./ui/sidebar";
 import { toastManager } from "./ui/toast";
 
 const EMPTY_KEYBINDINGS: ResolvedKeybindingsConfig = [];
@@ -777,13 +777,12 @@ export default function ProjectShellsView({
 
   return (
     <div
-      className="flex h-full min-h-0 flex-col bg-background text-foreground"
+      className="flex h-full min-h-0 flex-col overflow-hidden bg-background text-foreground"
       {...mobileEdgeSwipeHandlers}
       style={mobileViewport.isMobile ? { touchAction: "pan-y pinch-zoom" } : undefined}
     >
       <header className="shrink-0 border-b border-border/70 px-3 py-3 sm:px-4">
         <div className="flex items-center gap-2">
-          <SidebarTrigger className="size-7 shrink-0 md:hidden" />
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
               <h1 className="truncate text-base font-semibold sm:text-sm">{project.name}</h1>

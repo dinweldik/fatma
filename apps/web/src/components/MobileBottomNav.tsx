@@ -22,7 +22,7 @@ export function mobileBottomNavHeight(isVisible: boolean): string {
 export default function MobileBottomNav() {
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (state) => state.location.pathname });
-  const { setOpenMobile } = useSidebar();
+  const { openMobile, setOpenMobile } = useSidebar();
   const mobileViewport = useMobileViewport();
   const projects = useStore((store) => store.projects);
   const threads = useStore((store) => store.threads);
@@ -61,6 +61,7 @@ export default function MobileBottomNav() {
   }
 
   const chatIsActive = pathname === "/" || (!pathname.startsWith("/settings") && !pathname.startsWith("/shells/"));
+  const projectsIsActive = openMobile;
   const shellIsActive = pathname.startsWith("/shells/");
   const settingsIsActive = pathname.startsWith("/settings");
   const canOpenShell = activeProjectId !== null;
@@ -73,10 +74,13 @@ export default function MobileBottomNav() {
       >
         <button
           type="button"
-          className="flex min-h-12 flex-1 flex-col items-center justify-center gap-1 rounded-[1rem] px-2 text-[11px] font-medium text-muted-foreground transition-colors duration-150 hover:bg-accent hover:text-foreground"
-          onClick={() => setOpenMobile(true)}
+          className={cn(
+            "flex min-h-12 flex-1 flex-col items-center justify-center gap-1 rounded-[1rem] px-2 text-[11px] font-medium transition-colors duration-150 hover:bg-accent hover:text-foreground",
+            projectsIsActive ? "bg-accent text-foreground" : "text-muted-foreground",
+          )}
+          onClick={() => setOpenMobile(!openMobile)}
         >
-          <FolderKanbanIcon className="size-4 text-muted-foreground/80" />
+          <FolderKanbanIcon className={cn("size-4", iconClass(projectsIsActive))} />
           <span>Projects</span>
         </button>
         <button
