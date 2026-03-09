@@ -39,4 +39,4 @@ export interface OrchestrationProjectionPipelineShape {
 export class OrchestrationProjectionPipeline extends ServiceMap.Service<
   OrchestrationProjectionPipeline,
   OrchestrationProjectionPipelineShape
->()("fatma/orchestration/Services/ProjectionPipeline/OrchestrationProjectionPipeline") {}
+>()("fatma-app/orchestration/Services/ProjectionPipeline/OrchestrationProjectionPipeline") {}

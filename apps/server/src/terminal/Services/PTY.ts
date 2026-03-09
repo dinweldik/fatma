@@ -54,5 +54,5 @@ export interface PtyAdapterShape {
  * PtyAdapter - Service tag for PTY process integration.
  */
 export class PtyAdapter extends ServiceMap.Service<PtyAdapter, PtyAdapterShape>()(
-  "fatma/terminal/Services/PTY/PtyAdapter",
+  "fatma-app/terminal/Services/PTY/PtyAdapter",
 ) {}

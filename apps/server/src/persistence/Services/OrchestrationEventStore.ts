@@ -67,4 +67,4 @@ export interface OrchestrationEventStoreShape {
 export class OrchestrationEventStore extends ServiceMap.Service<
   OrchestrationEventStore,
   OrchestrationEventStoreShape
->()("fatma/persistence/Services/OrchestrationEventStore") {}
+>()("fatma-app/persistence/Services/OrchestrationEventStore") {}

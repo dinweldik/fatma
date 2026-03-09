@@ -111,5 +111,5 @@ export interface ProviderServiceShape {
  * ProviderService - Service tag for provider orchestration.
  */
 export class ProviderService extends ServiceMap.Service<ProviderService, ProviderServiceShape>()(
-  "fatma/provider/Services/ProviderService",
+  "fatma-app/provider/Services/ProviderService",
 ) {}

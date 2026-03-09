@@ -113,5 +113,5 @@ export interface TerminalManagerShape {
  * TerminalManager - Service tag for terminal session orchestration.
  */
 export class TerminalManager extends ServiceMap.Service<TerminalManager, TerminalManagerShape>()(
-  "fatma/terminal/Services/Manager/TerminalManager",
+  "fatma-app/terminal/Services/Manager/TerminalManager",
 ) {}

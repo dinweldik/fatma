@@ -88,4 +88,4 @@ export interface ProjectionPendingApprovalRepositoryShape {
 export class ProjectionPendingApprovalRepository extends ServiceMap.Service<
   ProjectionPendingApprovalRepository,
   ProjectionPendingApprovalRepositoryShape
->()("fatma/persistence/Services/ProjectionPendingApprovals/ProjectionPendingApprovalRepository") {}
+>()("fatma-app/persistence/Services/ProjectionPendingApprovals/ProjectionPendingApprovalRepository") {}

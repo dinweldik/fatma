@@ -90,4 +90,4 @@ export interface ProjectionCheckpointRepositoryShape {
 export class ProjectionCheckpointRepository extends ServiceMap.Service<
   ProjectionCheckpointRepository,
   ProjectionCheckpointRepositoryShape
->()("fatma/persistence/Services/ProjectionCheckpoints/ProjectionCheckpointRepository") {}
+>()("fatma-app/persistence/Services/ProjectionCheckpoints/ProjectionCheckpointRepository") {}

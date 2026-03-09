@@ -158,4 +158,4 @@ export interface ProjectionTurnRepositoryShape {
 export class ProjectionTurnRepository extends ServiceMap.Service<
   ProjectionTurnRepository,
   ProjectionTurnRepositoryShape
->()("fatma/persistence/Services/ProjectionTurns/ProjectionTurnRepository") {}
+>()("fatma-app/persistence/Services/ProjectionTurns/ProjectionTurnRepository") {}

@@ -90,5 +90,5 @@ export interface TextGenerationShape {
  * TextGeneration - Service tag for commit and PR text generation.
  */
 export class TextGeneration extends ServiceMap.Service<TextGeneration, TextGenerationShape>()(
-  "fatma/git/Services/TextGeneration",
+  "fatma-app/git/Services/TextGeneration",
 ) {}

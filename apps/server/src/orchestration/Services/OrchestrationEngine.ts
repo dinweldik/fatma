@@ -77,4 +77,4 @@ export interface OrchestrationEngineShape {
 export class OrchestrationEngineService extends ServiceMap.Service<
   OrchestrationEngineService,
   OrchestrationEngineShape
->()("fatma/orchestration/Services/OrchestrationEngine/OrchestrationEngineService") {}
+>()("fatma-app/orchestration/Services/OrchestrationEngine/OrchestrationEngineService") {}

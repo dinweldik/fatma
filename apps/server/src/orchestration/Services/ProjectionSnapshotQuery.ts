@@ -31,4 +31,4 @@ export interface ProjectionSnapshotQueryShape {
 export class ProjectionSnapshotQuery extends ServiceMap.Service<
   ProjectionSnapshotQuery,
   ProjectionSnapshotQueryShape
->()("fatma/orchestration/Services/ProjectionSnapshotQuery") {}
+>()("fatma-app/orchestration/Services/ProjectionSnapshotQuery") {}

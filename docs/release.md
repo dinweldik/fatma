@@ -15,7 +15,7 @@ This document covers how to run desktop releases from one tag, first without sig
   - Versions with a suffix after `X.Y.Z` (for example `1.2.3-alpha.1`) are published as GitHub prereleases.
   - Only plain `X.Y.Z` releases are marked as the repository's latest release.
 - Includes Electron auto-update metadata (for example `latest*.yml` and `*.blockmap`) in release assets.
-- Publishes the CLI package (`apps/server`, npm package `fatma`) with OIDC trusted publishing.
+- Publishes the CLI package (`apps/server`, npm package `fatma-app`) with OIDC trusted publishing.
 - Signing is optional and auto-detected per platform from secrets.
 
 ## Desktop auto-update notes
@@ -44,7 +44,7 @@ the package version to the release tag version.
 
 Checklist:
 
-1. Confirm npm user/org can publish package `fatma`.
+1. Confirm npm user/org can publish package `fatma-app`.
 2. In npm package settings, configure Trusted Publisher:
    - Provider: GitHub Actions
    - Repository: this repo
@@ -58,12 +58,12 @@ Checklist:
 
 ## Manual npm publish from a local shell
 
-Use this when you want the latest CLI available immediately via `npx fatma`.
+Use this when you want the latest CLI available immediately via `npx fatma-app`.
 
 Requirements:
 
 1. `NPM_TOKEN` must be available in the current shell environment.
-2. The token must be allowed to publish `fatma`.
+2. The token must be allowed to publish `fatma-app`.
 3. Run from the repository root.
 
 Command:
@@ -80,7 +80,7 @@ What it does:
 4. Runs `bun run build` so the packaged web client is rebuilt before publishing.
 5. Builds the npm package payload from `apps/server`.
 6. Writes a temporary `apps/server/.npmrc` from `NPM_TOKEN`.
-7. Publishes `fatma` to npm.
+7. Publishes `fatma-app` to npm.
 8. Removes the temporary auth file after publish.
 
 Useful flags:

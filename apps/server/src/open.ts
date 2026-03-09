@@ -195,7 +195,7 @@ export interface OpenShape {
 /**
  * Open - Service tag for browser/editor launch operations.
  */
-export class Open extends ServiceMap.Service<Open, OpenShape>()("fatma/open") {}
+export class Open extends ServiceMap.Service<Open, OpenShape>()("fatma-app/open") {}
 
 // ==============================
 // Implementations

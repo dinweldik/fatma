@@ -18,5 +18,5 @@ export interface ProviderHealthShape {
 }
 
 export class ProviderHealth extends ServiceMap.Service<ProviderHealth, ProviderHealthShape>()(
-  "fatma/provider/Services/ProviderHealth",
+  "fatma-app/provider/Services/ProviderHealth",
 ) {}

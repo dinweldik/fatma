@@ -80,4 +80,4 @@ export interface ProjectionThreadActivityRepositoryShape {
 export class ProjectionThreadActivityRepository extends ServiceMap.Service<
   ProjectionThreadActivityRepository,
   ProjectionThreadActivityRepositoryShape
->()("fatma/persistence/Services/ProjectionThreadActivities/ProjectionThreadActivityRepository") {}
+>()("fatma-app/persistence/Services/ProjectionThreadActivities/ProjectionThreadActivityRepository") {}

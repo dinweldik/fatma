@@ -7,16 +7,16 @@
       "outputs": ["dist-electron/**"],
     },
     "dev": {
-      "dependsOn": ["fatma#build"],
+      "dependsOn": ["fatma-app#build"],
       "persistent": true,
     },
     "start": {
-      "dependsOn": ["build", "@t3tools/web#build", "fatma#build"],
+      "dependsOn": ["build", "@t3tools/web#build", "fatma-app#build"],
       "cache": false,
       "persistent": true,
     },
     "smoke-test": {
-      "dependsOn": ["build", "@t3tools/web#build", "fatma#build"],
+      "dependsOn": ["build", "@t3tools/web#build", "fatma-app#build"],
       "cache": false,
       "outputs": [],
     },

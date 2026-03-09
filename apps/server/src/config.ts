@@ -34,7 +34,7 @@ export interface ServerConfigShape {
  * ServerConfig - Service tag for server runtime configuration.
  */
 export class ServerConfig extends ServiceMap.Service<ServerConfig, ServerConfigShape>()(
-  "fatma/config/ServerConfig",
+  "fatma-app/config/ServerConfig",
 ) {
   static readonly layerTest = (cwd: string, statedir: string) =>
     Layer.effect(

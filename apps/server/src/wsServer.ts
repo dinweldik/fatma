@@ -100,7 +100,7 @@ export interface ServerShape {
 /**
  * Server - Service tag for HTTP/WebSocket lifecycle management.
  */
-export class Server extends ServiceMap.Service<Server, ServerShape>()("fatma/wsServer/Server") {}
+export class Server extends ServiceMap.Service<Server, ServerShape>()("fatma-app/wsServer/Server") {}
 
 const isServerNotRunningError = (error: unknown): boolean => {
   if (!(error instanceof Error)) return false;

@@ -78,4 +78,4 @@ export interface ProviderSessionRuntimeRepositoryShape {
 export class ProviderSessionRuntimeRepository extends ServiceMap.Service<
   ProviderSessionRuntimeRepository,
   ProviderSessionRuntimeRepositoryShape
->()("fatma/persistence/Services/ProviderSessionRuntime/ProviderSessionRuntimeRepository") {}
+>()("fatma-app/persistence/Services/ProviderSessionRuntime/ProviderSessionRuntimeRepository") {}

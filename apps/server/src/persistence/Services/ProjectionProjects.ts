@@ -76,4 +76,4 @@ export interface ProjectionProjectRepositoryShape {
 export class ProjectionProjectRepository extends ServiceMap.Service<
   ProjectionProjectRepository,
   ProjectionProjectRepositoryShape
->()("fatma/persistence/Services/ProjectionProjects/ProjectionProjectRepository") {}
+>()("fatma-app/persistence/Services/ProjectionProjects/ProjectionProjectRepository") {}

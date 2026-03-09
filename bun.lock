@@ -42,7 +42,7 @@
       },
     },
     "apps/server": {
-      "name": "fatma",
+      "name": "fatma-app",
       "version": "1.0.14",
       "bin": {
         "6d": "./dist/index.mjs",
@@ -239,7 +239,7 @@
 
     "@capsizecss/unpack": ["@capsizecss/unpack@4.0.0", "", { "dependencies": { "fontkitten": "^1.0.0" } }, "sha512-VERIM64vtTP1C4mxQ5thVT9fK0apjPFobqybMtA1UdUujWka24ERHbRHFGmpbbhp73MhV+KSsHQH9C6uOTdEQA=="],
 
-    "fatma": ["fatma@workspace:apps/server"],
+    "fatma-app": ["fatma-app@workspace:apps/server"],
 
     "@effect/language-service": ["@effect/language-service@0.75.1", "", { "bin": { "effect-language-service": "cli.js" } }, "sha512-g9xD2tAQgRFpYC2YgpZq02VeSL5fBbFJ0B/g1o+14NuNmwtaYJc7SjiLWAA9eyhJHosNrn6h1Ye+Kx6j5mN0AA=="],
 

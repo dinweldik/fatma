@@ -54,4 +54,4 @@ export interface ProviderSessionDirectoryShape {
 export class ProviderSessionDirectory extends ServiceMap.Service<
   ProviderSessionDirectory,
   ProviderSessionDirectoryShape
->()("fatma/provider/Services/ProviderSessionDirectory") {}
+>()("fatma-app/provider/Services/ProviderSessionDirectory") {}

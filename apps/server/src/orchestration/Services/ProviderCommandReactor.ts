@@ -31,4 +31,4 @@ export interface ProviderCommandReactorShape {
 export class ProviderCommandReactor extends ServiceMap.Service<
   ProviderCommandReactor,
   ProviderCommandReactorShape
->()("fatma/orchestration/Services/ProviderCommandReactor") {}
+>()("fatma-app/orchestration/Services/ProviderCommandReactor") {}

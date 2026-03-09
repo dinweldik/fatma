@@ -8,7 +8,7 @@
 > You need to have [Codex CLI](https://github.com/openai/codex) installed and authorized for 6d to work.
 
 ```bash
-npx fatma
+npx fatma-app
 ```
 
 You can also just install the desktop app. It's cooler.
@@ -38,7 +38,7 @@ That launches the backend (`apps/server`) plus the Vite web client (`apps/web`).
 - `bun run dev:web` to run only the web UI (useful when iterating on React)
 - `bun run dev:server` to run only the backend service and Codex worker
 - `bun run dev:desktop` to exercise the bundled Electron shell
-- `bun run dev:single` to mimic `npx fatma` (single process server + built web UI, no Vite HMR)
+- `bun run dev:single` to mimic `npx fatma-app` (single process server + built web UI, no Vite HMR)
 
 The frontend listens on `http://localhost:5733` by default and the backend on `ws://localhost:3773`, but the browser automatically normalizes those URLs (to `wss://` when the page is served over HTTPS and to the current host when you visit from another device).
 
@@ -46,7 +46,7 @@ The frontend listens on `http://localhost:5733` by default and the backend on `w
 
 For the best mobile and PWA experience, use one HTTPS origin for both the UI and the server. The easiest options are:
 
-- `npx fatma --host 0.0.0.0 --no-browser`
+- `npx fatma-app --host 0.0.0.0 --no-browser`
 - `bun run dev:single`
 
 Then publish that single local port through Tailscale Serve:
@@ -69,7 +69,7 @@ If you see "Checkpoint ref is unavailable for turn X" while looking at the diff 
 
 ### Publishing to npm
 
-Use the root publish command. It bumps `apps/server` to the next patch version by default, runs `bun lint`, runs `bun typecheck`, rebuilds the monorepo so the bundled web client is current, builds the CLI package, writes a temporary `.npmrc` from `NPM_TOKEN`, publishes `fatma`, and cleans up the temp auth file afterward.
+Use the root publish command. It bumps `apps/server` to the next patch version by default, runs `bun lint`, runs `bun typecheck`, rebuilds the monorepo so the bundled web client is current, builds the CLI package, writes a temporary `.npmrc` from `NPM_TOKEN`, publishes `fatma-app`, and cleans up the temp auth file afterward.
 
 ```bash
 bun run publish:npm
