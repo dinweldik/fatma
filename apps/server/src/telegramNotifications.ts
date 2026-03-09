@@ -60,7 +60,7 @@ export interface TelegramNotificationsShape {
 export class TelegramNotifications extends ServiceMap.Service<
   TelegramNotifications,
   TelegramNotificationsShape
->()("@dinweldik/6d/telegramNotifications") {}
+>()("fatma/telegramNotifications") {}
 
 function trimStoredValue(value: string): string {
   return value.trim();

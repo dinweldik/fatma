@@ -158,4 +158,4 @@ export interface ProjectionTurnRepositoryShape {
 export class ProjectionTurnRepository extends ServiceMap.Service<
   ProjectionTurnRepository,
   ProjectionTurnRepositoryShape
->()("@dinweldik/6d/persistence/Services/ProjectionTurns/ProjectionTurnRepository") {}
+>()("fatma/persistence/Services/ProjectionTurns/ProjectionTurnRepository") {}

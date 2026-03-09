@@ -18,5 +18,5 @@ export interface ProviderHealthShape {
 }
 
 export class ProviderHealth extends ServiceMap.Service<ProviderHealth, ProviderHealthShape>()(
-  "@dinweldik/6d/provider/Services/ProviderHealth",
+  "fatma/provider/Services/ProviderHealth",
 ) {}

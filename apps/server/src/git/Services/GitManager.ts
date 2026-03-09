@@ -40,5 +40,5 @@ export interface GitManagerShape {
  * GitManager - Service tag for stacked Git workflow orchestration.
  */
 export class GitManager extends ServiceMap.Service<GitManager, GitManagerShape>()(
-  "@dinweldik/6d/git/Services/GitManager",
+  "fatma/git/Services/GitManager",
 ) {}

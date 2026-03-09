@@ -7,16 +7,16 @@
       "outputs": ["dist-electron/**"],
     },
     "dev": {
-      "dependsOn": ["@dinweldik/6d#build"],
+      "dependsOn": ["fatma#build"],
       "persistent": true,
     },
     "start": {
-      "dependsOn": ["build", "@t3tools/web#build", "@dinweldik/6d#build"],
+      "dependsOn": ["build", "@t3tools/web#build", "fatma#build"],
       "cache": false,
       "persistent": true,
     },
     "smoke-test": {
-      "dependsOn": ["build", "@t3tools/web#build", "@dinweldik/6d#build"],
+      "dependsOn": ["build", "@t3tools/web#build", "fatma#build"],
       "cache": false,
       "outputs": [],
     },

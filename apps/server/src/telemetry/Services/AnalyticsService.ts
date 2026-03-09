@@ -24,7 +24,7 @@ export interface AnalyticsServiceShape {
 }
 
 export class AnalyticsService extends ServiceMap.Service<AnalyticsService, AnalyticsServiceShape>()(
-  "@dinweldik/6d/telemetry/Services/AnalyticsService",
+  "fatma/telemetry/Services/AnalyticsService",
 ) {
   static readonly layerTest = Layer.succeed(AnalyticsService, {
     record: () => Effect.void,

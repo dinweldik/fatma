@@ -48,5 +48,5 @@ export class ProjectionThreadProposedPlanRepository extends ServiceMap.Service<
   ProjectionThreadProposedPlanRepository,
   ProjectionThreadProposedPlanRepositoryShape
 >()(
-  "@dinweldik/6d/persistence/Services/ProjectionThreadProposedPlans/ProjectionThreadProposedPlanRepository",
+  "fatma/persistence/Services/ProjectionThreadProposedPlans/ProjectionThreadProposedPlanRepository",
 ) {}

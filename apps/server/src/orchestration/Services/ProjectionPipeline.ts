@@ -39,4 +39,4 @@ export interface OrchestrationProjectionPipelineShape {
 export class OrchestrationProjectionPipeline extends ServiceMap.Service<
   OrchestrationProjectionPipeline,
   OrchestrationProjectionPipelineShape
->()("@dinweldik/6d/orchestration/Services/ProjectionPipeline/OrchestrationProjectionPipeline") {}
+>()("fatma/orchestration/Services/ProjectionPipeline/OrchestrationProjectionPipeline") {}

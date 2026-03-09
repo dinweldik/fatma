@@ -46,4 +46,4 @@ export interface CheckpointDiffQueryShape {
 export class CheckpointDiffQuery extends ServiceMap.Service<
   CheckpointDiffQuery,
   CheckpointDiffQueryShape
->()("@dinweldik/6d/checkpointing/Services/CheckpointDiffQuery") {}
+>()("fatma/checkpointing/Services/CheckpointDiffQuery") {}

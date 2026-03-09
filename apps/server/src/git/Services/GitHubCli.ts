@@ -64,5 +64,5 @@ export interface GitHubCliShape {
  * GitHubCli - Service tag for GitHub CLI process execution.
  */
 export class GitHubCli extends ServiceMap.Service<GitHubCli, GitHubCliShape>()(
-  "@dinweldik/6d/git/Services/GitHubCli",
+  "fatma/git/Services/GitHubCli",
 ) {}

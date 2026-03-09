@@ -31,4 +31,4 @@ export interface ProviderCommandReactorShape {
 export class ProviderCommandReactor extends ServiceMap.Service<
   ProviderCommandReactor,
   ProviderCommandReactorShape
->()("@dinweldik/6d/orchestration/Services/ProviderCommandReactor") {}
+>()("fatma/orchestration/Services/ProviderCommandReactor") {}

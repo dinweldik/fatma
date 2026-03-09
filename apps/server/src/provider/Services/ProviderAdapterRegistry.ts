@@ -37,6 +37,6 @@ export interface ProviderAdapterRegistryShape {
 export class ProviderAdapterRegistry extends ServiceMap.Service<
   ProviderAdapterRegistry,
   ProviderAdapterRegistryShape
->()("@dinweldik/6d/provider/Services/ProviderAdapterRegistry") {}
+>()("fatma/provider/Services/ProviderAdapterRegistry") {}
 
 // Dummy comment for workflow testing.

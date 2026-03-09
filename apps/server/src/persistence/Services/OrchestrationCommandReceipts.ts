@@ -66,4 +66,4 @@ export interface OrchestrationCommandReceiptRepositoryShape {
 export class OrchestrationCommandReceiptRepository extends ServiceMap.Service<
   OrchestrationCommandReceiptRepository,
   OrchestrationCommandReceiptRepositoryShape
->()("@dinweldik/6d/persistence/Services/OrchestrationCommandReceipts/OrchestrationCommandReceiptRepository") {}
+>()("fatma/persistence/Services/OrchestrationCommandReceipts/OrchestrationCommandReceiptRepository") {}

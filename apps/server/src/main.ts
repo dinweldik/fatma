@@ -68,7 +68,7 @@ export interface CliConfigShape {
  * CliConfig - Service tag for startup CLI/runtime helpers.
  */
 export class CliConfig extends ServiceMap.Service<CliConfig, CliConfigShape>()(
-  "@dinweldik/6d/main/CliConfig",
+  "fatma/main/CliConfig",
 ) {
   static readonly layer = Layer.effect(
     CliConfig,

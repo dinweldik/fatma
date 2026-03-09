@@ -7,7 +7,7 @@
 Use one of these local server modes:
 
 ```bash
-npx @dinweldik/6d --host 0.0.0.0 --no-browser
+npx fatma --host 0.0.0.0 --no-browser
 ```
 
 ```bash

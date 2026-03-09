@@ -91,4 +91,4 @@ export interface ProjectionThreadRepositoryShape {
 export class ProjectionThreadRepository extends ServiceMap.Service<
   ProjectionThreadRepository,
   ProjectionThreadRepositoryShape
->()("@dinweldik/6d/persistence/Services/ProjectionThreads/ProjectionThreadRepository") {}
+>()("fatma/persistence/Services/ProjectionThreads/ProjectionThreadRepository") {}

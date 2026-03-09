@@ -78,4 +78,4 @@ export interface ProviderSessionRuntimeRepositoryShape {
 export class ProviderSessionRuntimeRepository extends ServiceMap.Service<
   ProviderSessionRuntimeRepository,
   ProviderSessionRuntimeRepositoryShape
->()("@dinweldik/6d/persistence/Services/ProviderSessionRuntime/ProviderSessionRuntimeRepository") {}
+>()("fatma/persistence/Services/ProviderSessionRuntime/ProviderSessionRuntimeRepository") {}

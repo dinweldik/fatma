@@ -41,5 +41,5 @@ export interface GitServiceShape {
  * GitService - Service for Git command execution.
  */
 export class GitService extends ServiceMap.Service<GitService, GitServiceShape>()(
-  "@dinweldik/6d/git/Services/GitService",
+  "fatma/git/Services/GitService",
 ) {}

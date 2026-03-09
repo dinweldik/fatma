@@ -111,5 +111,5 @@ export interface ProviderServiceShape {
  * ProviderService - Service tag for provider orchestration.
  */
 export class ProviderService extends ServiceMap.Service<ProviderService, ProviderServiceShape>()(
-  "@dinweldik/6d/provider/Services/ProviderService",
+  "fatma/provider/Services/ProviderService",
 ) {}

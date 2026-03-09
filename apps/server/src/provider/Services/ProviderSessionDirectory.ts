@@ -54,4 +54,4 @@ export interface ProviderSessionDirectoryShape {
 export class ProviderSessionDirectory extends ServiceMap.Service<
   ProviderSessionDirectory,
   ProviderSessionDirectoryShape
->()("@dinweldik/6d/provider/Services/ProviderSessionDirectory") {}
+>()("fatma/provider/Services/ProviderSessionDirectory") {}
