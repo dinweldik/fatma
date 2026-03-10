@@ -183,6 +183,15 @@ body {
     overscroll-behavior: contain;
   }
 
+  .project-shell-terminal[data-mobile="true"][data-selection-mode="true"] .xterm .xterm-accessibility {
+    pointer-events: auto;
+  }
+
+  .project-shell-terminal[data-mobile="true"] .xterm .xterm-accessibility-tree {
+    -webkit-user-select: text;
+    user-select: text;
+  }
+
   [data-mobile-timeline="true"] {
     padding-bottom: 0.25rem;
   }

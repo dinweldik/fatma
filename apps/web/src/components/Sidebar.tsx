@@ -11,6 +11,7 @@ import {
   TerminalIcon,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import appSidebarLogoUrl from "../../../../assets/prod/logo_nobg.svg";
 import {
   DEFAULT_RUNTIME_MODE,
   DEFAULT_MODEL_BY_PROVIDER,
@@ -91,6 +92,8 @@ import { isNonEmpty as isNonEmptyString } from "effect/String";
 
 const EMPTY_KEYBINDINGS: ResolvedKeybindingsConfig = [];
 const THREAD_PREVIEW_LIMIT = 6;
+
+type MobileSidebarPresentation = "page" | "sheet";
 
 async function copyTextToClipboard(text: string): Promise<void> {
   if (typeof navigator === "undefined" || navigator.clipboard?.writeText === undefined) {
@@ -227,6 +230,17 @@ function AppWordmark() {
   );
 }
 
+function AppBrandMark() {
+  return (
+    <img
+      src={appSidebarLogoUrl}
+      alt=""
+      aria-hidden="true"
+      className="size-5 shrink-0 rounded-md object-contain"
+    />
+  );
+}
+
 /**
  * Derives the server's HTTP origin (scheme + host + port) from the same
  * sources WsTransport uses, converting ws(s) to http(s).
@@ -273,7 +287,11 @@ function ProjectFavicon({ cwd }: { cwd: string }) {
   );
 }
 
-export default function Sidebar() {
+export default function Sidebar({
+  mobilePresentation = "sheet",
+}: {
+  mobilePresentation?: MobileSidebarPresentation;
+}) {
   const projects = useStore((store) => store.projects);
   const threads = useStore((store) => store.threads);
   const markThreadUnread = useStore((store) => store.markThreadUnread);
@@ -284,6 +302,7 @@ export default function Sidebar() {
   );
   const getDraftThread = useComposerDraftStore((store) => store.getDraftThread);
   const shellStateByProjectId = useProjectShellStore((state) => state.shellStateByProjectId);
+  const setActiveShell = useProjectShellStore((state) => state.setActiveShell);
   const setProjectDraftThreadId = useComposerDraftStore((store) => store.setProjectDraftThreadId);
   const setDraftThreadContext = useComposerDraftStore((store) => store.setDraftThreadContext);
   const clearProjectDraftThreadId = useComposerDraftStore(
@@ -923,15 +942,15 @@ export default function Sidebar() {
       const project = projects.find((entry) => entry.id === projectId);
       if (!project) return;
       const shell = ensureProjectShell(project.id, defaultProjectShellConfig(project));
+      setActiveShell(project.id, shell.id);
       await navigate({
-        to: "/shells/$projectId/$shellId",
+        to: "/shells/$projectId",
         params: {
           projectId: project.id,
-          shellId: shell.id,
         },
       });
     },
-    [navigate, projects],
+    [navigate, projects, setActiveShell],
   );
 
   const createAndOpenProjectShell = useCallback(
@@ -939,15 +958,15 @@ export default function Sidebar() {
       const project = projects.find((entry) => entry.id === projectId);
       if (!project) return;
       const shell = createProjectShell(project.id, defaultProjectShellConfig(project));
+      setActiveShell(project.id, shell.id);
       await navigate({
-        to: "/shells/$projectId/$shellId",
+        to: "/shells/$projectId",
         params: {
           projectId: project.id,
-          shellId: shell.id,
         },
       });
     },
-    [navigate, projects],
+    [navigate, projects, setActiveShell],
   );
 
   const selectThreadFromSidebar = useCallback(
@@ -963,16 +982,16 @@ export default function Sidebar() {
 
   const selectShellFromSidebar = useCallback(
     async (projectId: ProjectId, shellId: string) => {
+      setActiveShell(projectId, shellId);
       await navigate({
-        to: "/shells/$projectId/$shellId",
+        to: "/shells/$projectId",
         params: {
           projectId,
-          shellId,
         },
       });
       collapseMobileSidebar();
     },
-    [collapseMobileSidebar, navigate],
+    [collapseMobileSidebar, navigate, setActiveShell],
   );
 
   const createThreadFromSidebar = useCallback(
@@ -1211,8 +1230,16 @@ export default function Sidebar() {
 
   const wordmark = (
     <div className={cn("flex items-center gap-2", isMobile && "items-start gap-3")}>
-      <div className={cn("mt-2 ml-1 flex min-w-0 flex-1 items-center gap-1", isMobile && "mt-0 ml-0 flex-col items-start gap-0.5")}>
-        <AppWordmark />
+      <div
+        className={cn(
+          "mt-2 ml-1 flex min-w-0 flex-1 items-center gap-2",
+          isMobile && "mt-0 ml-0 flex-col items-start gap-0.5",
+        )}
+      >
+        <div className="flex items-center gap-2">
+          <AppBrandMark />
+          <AppWordmark />
+        </div>
         {isMobile ? (
           <span className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground/65">
             Projects, threads, and shells
@@ -1698,12 +1725,14 @@ export default function Sidebar() {
         </SidebarGroup>
       </SidebarContent>
 
-      <SidebarSeparator />
+      {!isMobile || mobilePresentation === "sheet" ? <SidebarSeparator /> : null}
       <SidebarFooter
         className={cn(
           "gap-2 p-3",
           isMobile &&
+            mobilePresentation === "sheet" &&
             "border-t border-border/70 bg-background/96 px-3 pt-3 pb-[calc(var(--safe-area-inset-bottom)+0.85rem)] backdrop-blur-sm",
+          isMobile && mobilePresentation === "page" && "hidden",
         )}
       >
         {!isMobile ? (
@@ -1726,11 +1755,11 @@ export default function Sidebar() {
               <span>Settings</span>
             </button>
           </>
-        ) : (
+        ) : mobilePresentation === "sheet" ? (
           <div className="rounded-2xl border border-border/70 bg-card/80 px-3 py-2 text-[11px] text-muted-foreground/65">
             Swipe from the left edge in chat or shell to reopen this navigator.
           </div>
-        )}
+        ) : null}
       </SidebarFooter>
 
       <Dialog open={addingProject} onOpenChange={handleProjectBrowserOpenChange}>

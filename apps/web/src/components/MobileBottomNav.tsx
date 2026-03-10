@@ -7,7 +7,6 @@ import { isElectron } from "../env";
 import { useMobileViewport } from "../mobileViewport";
 import { useStore } from "../store";
 import { cn } from "../lib/utils";
-import { useSidebar } from "./ui/sidebar";
 
 const MOBILE_BOTTOM_NAV_HEIGHT = "5rem";
 
@@ -22,7 +21,6 @@ export function mobileBottomNavHeight(isVisible: boolean): string {
 export default function MobileBottomNav() {
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (state) => state.location.pathname });
-  const { openMobile, setOpenMobile } = useSidebar();
   const mobileViewport = useMobileViewport();
   const projects = useStore((store) => store.projects);
   const threads = useStore((store) => store.threads);
@@ -60,8 +58,12 @@ export default function MobileBottomNav() {
     return null;
   }
 
-  const chatIsActive = pathname === "/" || (!pathname.startsWith("/settings") && !pathname.startsWith("/shells/"));
-  const projectsIsActive = openMobile;
+  const chatIsActive =
+    pathname === "/" ||
+    (!pathname.startsWith("/projects") &&
+      !pathname.startsWith("/settings") &&
+      !pathname.startsWith("/shells/"));
+  const projectsIsActive = pathname.startsWith("/projects");
   const shellIsActive = pathname.startsWith("/shells/");
   const settingsIsActive = pathname.startsWith("/settings");
   const canOpenShell = activeProjectId !== null;
@@ -78,7 +80,9 @@ export default function MobileBottomNav() {
             "flex min-h-12 flex-1 flex-col items-center justify-center gap-1 rounded-[1rem] px-2 text-[11px] font-medium transition-colors duration-150 hover:bg-accent hover:text-foreground",
             projectsIsActive ? "bg-accent text-foreground" : "text-muted-foreground",
           )}
-          onClick={() => setOpenMobile(!openMobile)}
+          onClick={() => {
+            void navigate({ to: "/projects" });
+          }}
         >
           <FolderKanbanIcon className={cn("size-4", iconClass(projectsIsActive))} />
           <span>Projects</span>

@@ -2,7 +2,8 @@ import { ProjectId } from "@fatma/contracts";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect } from "react";
 
-import { defaultProjectShellConfig, ensureProjectShell } from "../projectShellRunner";
+import ProjectShellsView from "../components/ProjectShellsView";
+import { SidebarInset } from "../components/ui/sidebar";
 import { useStore } from "../store";
 
 function ProjectShellIndexRouteView() {
@@ -17,21 +18,18 @@ function ProjectShellIndexRouteView() {
   useEffect(() => {
     if (!project) {
       void navigate({ to: "/", replace: true });
-      return;
     }
-
-    const shell = ensureProjectShell(project.id, defaultProjectShellConfig(project));
-    void navigate({
-      to: "/shells/$projectId/$shellId",
-      params: {
-        projectId: project.id,
-        shellId: shell.id,
-      },
-      replace: true,
-    });
   }, [navigate, project]);
 
-  return null;
+  if (!project) {
+    return null;
+  }
+
+  return (
+    <SidebarInset className="app-mobile-viewport min-h-0 overflow-hidden overscroll-y-none bg-background pt-[var(--safe-area-inset-top)] pb-[calc(var(--safe-area-inset-bottom)+var(--app-mobile-bottom-nav-height,0px))] text-foreground">
+      <ProjectShellsView project={project} />
+    </SidebarInset>
+  );
 }
 
 export const Route = createFileRoute("/_chat/shells/$projectId/")({

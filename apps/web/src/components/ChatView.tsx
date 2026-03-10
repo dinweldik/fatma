@@ -174,7 +174,6 @@ import {
   runProjectScriptInShell,
 } from "../projectShellRunner";
 import { projectScriptIdFromCommand, setupProjectScript } from "~/projectScripts";
-import { useSidebar } from "./ui/sidebar";
 import { readNativeApi } from "~/nativeApi";
 import {
   getAppModelOptions,
@@ -195,6 +194,7 @@ import {
 import { clamp } from "effect/Number";
 import { ComposerPromptEditor, type ComposerPromptEditorHandle } from "./ComposerPromptEditor";
 import { estimateTimelineMessageHeight } from "./timelineHeight";
+import { useProjectShellStore } from "../projectShellStore";
 
 function formatMessageMeta(createdAt: string, duration: string | null): string {
   if (!duration) return formatTimestamp(createdAt);
@@ -552,7 +552,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const setStoreThreadBranch = useStore((store) => store.setThreadBranch);
   const { settings } = useAppSettings();
   const navigate = useNavigate();
-  const { openMobile: sidebarOpenMobile, setOpenMobile } = useSidebar();
   const mobileViewport = useMobileViewport();
   const { resolvedTheme } = useTheme();
   const queryClient = useQueryClient();
@@ -570,6 +569,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
   );
   const setComposerDraftEffort = useComposerDraftStore((store) => store.setEffort);
   const setComposerDraftCodexFastMode = useComposerDraftStore((store) => store.setCodexFastMode);
+  const setActiveProjectShell = useProjectShellStore((store) => store.setActiveShell);
   const addComposerDraftImage = useComposerDraftStore((store) => store.addImage);
   const addComposerDraftImages = useComposerDraftStore((store) => store.addImages);
   const removeComposerDraftImage = useComposerDraftStore((store) => store.removeImage);
@@ -1107,11 +1107,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const canOpenSourceControl = gitCwd !== null;
   const mobileEdgeSwipeHandlers = useMobileEdgeSwipe({
     enabled: mobileViewport.isMobile,
-    leftEnabled: !sidebarOpenMobile,
     rightEnabled: !sourceControlOpen && canOpenSourceControl,
-    onSwipeFromLeftEdge: () => {
-      setOpenMobile(true);
-    },
     onSwipeFromRightEdge: () => {
       setSourceControlOpen(true);
     },
@@ -1265,15 +1261,15 @@ export default function ChatView({ threadId }: ChatViewProps) {
       const shell = createNewShell
         ? createProjectShell(activeProject.id, defaultProjectShellConfig(activeProject))
         : ensureProjectShell(activeProject.id, defaultProjectShellConfig(activeProject));
+      setActiveProjectShell(activeProject.id, shell.id);
       await navigate({
-        to: "/shells/$projectId/$shellId",
+        to: "/shells/$projectId",
         params: {
           projectId: activeProject.id,
-          shellId: shell.id,
         },
       });
     },
-    [activeProject, navigate],
+    [activeProject, navigate, setActiveProjectShell],
   );
   const runProjectScript = useCallback(
     async (
@@ -1299,11 +1295,11 @@ export default function ChatView({ threadId }: ChatViewProps) {
           ...(options?.preferNewShell ? { preferNewShell: true } : {}),
         });
         if (options?.navigateToShell !== false) {
+          setActiveProjectShell(activeProject.id, shell.id);
           await navigate({
-            to: "/shells/$projectId/$shellId",
+            to: "/shells/$projectId",
             params: {
               projectId: activeProject.id,
-              shellId: shell.id,
             },
           });
         }
@@ -1314,7 +1310,16 @@ export default function ChatView({ threadId }: ChatViewProps) {
         );
       }
     },
-    [activeProject, activeThread, activeThreadId, gitCwd, isServerThread, setThreadError, navigate],
+    [
+      activeProject,
+      activeThread,
+      activeThreadId,
+      gitCwd,
+      isServerThread,
+      setThreadError,
+      navigate,
+      setActiveProjectShell,
+    ],
   );
 
   const handleRuntimeModeChange = useCallback(

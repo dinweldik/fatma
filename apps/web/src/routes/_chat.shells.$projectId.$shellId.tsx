@@ -4,10 +4,12 @@ import { useEffect } from "react";
 
 import ProjectShellsView from "../components/ProjectShellsView";
 import { SidebarInset } from "../components/ui/sidebar";
+import { useProjectShellStore } from "../projectShellStore";
 import { useStore } from "../store";
 
 function ProjectShellRouteView() {
   const navigate = useNavigate();
+  const setActiveShell = useProjectShellStore((store) => store.setActiveShell);
   const { projectId, shellId } = Route.useParams({
     select: (params) => ({
       projectId: ProjectId.makeUnsafe(params.projectId),
@@ -19,11 +21,20 @@ function ProjectShellRouteView() {
   );
 
   useEffect(() => {
-    if (project) {
+    if (!project) {
+      void navigate({ to: "/", replace: true });
       return;
     }
-    void navigate({ to: "/", replace: true });
-  }, [navigate, project]);
+
+    setActiveShell(project.id, shellId);
+    void navigate({
+      to: "/shells/$projectId",
+      params: {
+        projectId: project.id,
+      },
+      replace: true,
+    });
+  }, [navigate, project, setActiveShell, shellId]);
 
   if (!project) {
     return null;

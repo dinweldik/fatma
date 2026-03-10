@@ -39,13 +39,15 @@ function ChatRouteLayout() {
         } as React.CSSProperties
       }
     >
-      <Sidebar
-        side="left"
-        collapsible="offcanvas"
-        className="border-r border-border bg-card text-foreground"
-      >
-        <ThreadSidebar />
-      </Sidebar>
+      {mobileViewport.isMobile ? null : (
+        <Sidebar
+          side="left"
+          collapsible="offcanvas"
+          className="border-r border-border bg-card text-foreground"
+        >
+          <ThreadSidebar />
+        </Sidebar>
+      )}
       <DiffWorkerPoolProvider>
         <div className="relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
           <Outlet />
