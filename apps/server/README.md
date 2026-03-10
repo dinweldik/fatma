@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="https://raw.githubusercontent.com/dinweldik/fatma/main/assets/prod/logo.svg" alt="fatma logo" width="140" />
+</p>
+
 # fatma-app
 
 `fatma-app` is a mobile-friendly web UI for running Codex across a whole folder of local projects from one place.
