@@ -48,6 +48,7 @@ import { serverConfigQueryOptions } from "../lib/serverReactQuery";
 import { readNativeApi } from "../nativeApi";
 import { type DraftThreadEnvMode, useComposerDraftStore } from "../composerDraftStore";
 import { onServerWelcome } from "../wsNativeApi";
+import { filterProjectBrowserEntries, isHiddenProjectBrowserEntry } from "../projectBrowserEntries";
 import { toastManager } from "./ui/toast";
 import {
   getDesktopUpdateActionError,
@@ -72,6 +73,7 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { ScrollArea } from "./ui/scroll-area";
+import { Switch } from "./ui/switch";
 import {
   SidebarContent,
   SidebarFooter,
@@ -334,6 +336,7 @@ export default function Sidebar({
   const [isAddingProject, setIsAddingProject] = useState(false);
   const [projectBrowserRootPath, setProjectBrowserRootPath] = useState<string | null>(null);
   const [projectBrowserCurrentPath, setProjectBrowserCurrentPath] = useState<string | null>(null);
+  const [showHiddenProjectBrowserEntries, setShowHiddenProjectBrowserEntries] = useState(false);
   const [newProjectFolderName, setNewProjectFolderName] = useState("");
   const [renamingThreadId, setRenamingThreadId] = useState<ThreadId | null>(null);
   const [renamingTitle, setRenamingTitle] = useState("");
@@ -577,6 +580,7 @@ export default function Sidebar({
       const finishAddingProject = () => {
         setIsAddingProject(false);
         setNewProjectFolderName("");
+        setShowHiddenProjectBrowserEntries(false);
         setProjectBrowserCurrentPath(projectBrowserRootPath);
         setAddingProject(false);
       };
@@ -641,6 +645,7 @@ export default function Sidebar({
 
   const openProjectBrowser = useCallback(() => {
     setNewProjectFolderName("");
+    setShowHiddenProjectBrowserEntries(false);
     setProjectBrowserCurrentPath(projectBrowserRootPath);
     setAddingProject(true);
   }, [projectBrowserRootPath]);
@@ -650,9 +655,11 @@ export default function Sidebar({
       setAddingProject(open);
       if (!open) {
         setNewProjectFolderName("");
+        setShowHiddenProjectBrowserEntries(false);
         setProjectBrowserCurrentPath(projectBrowserRootPath);
         return;
       }
+      setShowHiddenProjectBrowserEntries(false);
       setProjectBrowserCurrentPath(projectBrowserRootPath);
     },
     [projectBrowserRootPath],
@@ -1226,6 +1233,12 @@ export default function Sidebar({
     projectBrowserQuery.data?.directoryPath ?? projectBrowserCurrentPath;
   const projectBrowserParentPath = projectBrowserQuery.data?.parentPath ?? null;
   const projectBrowserEntries = projectBrowserQuery.data?.entries ?? [];
+  const visibleProjectBrowserEntries = filterProjectBrowserEntries(projectBrowserEntries, {
+    showHidden: showHiddenProjectBrowserEntries,
+  });
+  const projectBrowserHasHiddenEntries = projectBrowserEntries.some((entry) =>
+    isHiddenProjectBrowserEntry(entry),
+  );
   const isCreatingProjectFolder = createProjectDirectoryMutation.isPending;
 
   const wordmark = (
@@ -1810,6 +1823,21 @@ export default function Sidebar({
                     </Button>
                   )}
                 </div>
+                <label className="mt-3 flex items-center justify-between gap-3 rounded-lg border border-border/70 bg-background/70 px-3 py-2 text-sm">
+                  <div className="min-w-0">
+                    <p className="font-medium text-foreground">Show hidden files and folders</p>
+                    <p className="text-xs text-muted-foreground">
+                      Hidden entries stay out of the picker unless you enable them.
+                    </p>
+                  </div>
+                  <Switch
+                    checked={showHiddenProjectBrowserEntries}
+                    onCheckedChange={(checked) =>
+                      setShowHiddenProjectBrowserEntries(Boolean(checked))
+                    }
+                    aria-label="Show hidden files and folders"
+                  />
+                </label>
               </div>
 
               <ScrollArea className={cn(isMobile ? "h-[min(56dvh,30rem)]" : "h-72")}>
@@ -1825,13 +1853,15 @@ export default function Sidebar({
                       ? projectBrowserQuery.error.message
                       : "Unable to load folder contents."}
                   </div>
-                ) : projectBrowserEntries.length === 0 ? (
+                ) : visibleProjectBrowserEntries.length === 0 ? (
                   <div className="px-4 py-6 text-sm text-muted-foreground">
-                    This folder is empty.
+                    {projectBrowserHasHiddenEntries
+                      ? "Only hidden files or folders are in this location."
+                      : "This folder is empty."}
                   </div>
                 ) : (
                   <div className="p-2">
-                    {projectBrowserEntries.map((entry) =>
+                    {visibleProjectBrowserEntries.map((entry) =>
                       entry.kind === "directory" ? (
                         <button
                           key={entry.path}
