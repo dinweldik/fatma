@@ -1111,11 +1111,8 @@ export default function ProjectShellsView({
       {mobileViewport.isMobile && activeShell ? (
         <div
           className="shrink-0 border-border/70 border-t bg-background/92 backdrop-blur-xl"
-          style={{
-            paddingBottom: "var(--app-mobile-keyboard-inset)",
-          }}
         >
-          <div className="grid grid-cols-5 gap-2 px-3 py-2">
+          <div className="grid grid-cols-5 gap-2 px-3 py-1">
             {mobileAccessoryButtons.map((button) => (
               <MobileAccessoryButton
                 key={button.label}
