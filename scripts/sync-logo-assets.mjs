@@ -22,11 +22,50 @@ const MASTER_PNG_TARGETS = [
 ];
 
 const PNG_TARGETS = [
-  { size: 16, paths: ["assets/prod/fatma-black-web-favicon-16x16.png", "assets/dev/blueprint-web-favicon-16x16.png", "apps/web/public/favicon-16x16.png", "apps/marketing/public/favicon-16x16.png"] },
-  { size: 32, paths: ["assets/prod/fatma-black-web-favicon-32x32.png", "assets/dev/blueprint-web-favicon-32x32.png", "apps/web/public/favicon-32x32.png", "apps/marketing/public/favicon-32x32.png"] },
-  { size: 180, paths: ["assets/prod/fatma-black-web-apple-touch-180.png", "assets/dev/blueprint-web-apple-touch-180.png", "apps/web/public/apple-touch-icon.png", "apps/marketing/public/apple-touch-icon.png"] },
-  { size: 192, paths: ["assets/prod/fatma-black-web-app-icon-192.png", "assets/dev/blueprint-web-app-icon-192.png", "apps/web/public/icon-192.png"] },
-  { size: 512, paths: ["assets/prod/fatma-black-web-app-icon-512.png", "assets/dev/blueprint-web-app-icon-512.png", "apps/web/public/icon-512.png", "apps/desktop/resources/icon.png"] },
+  {
+    size: 16,
+    paths: [
+      "assets/prod/fatma-black-web-favicon-16x16.png",
+      "assets/dev/blueprint-web-favicon-16x16.png",
+      "apps/web/public/favicon-16x16.png",
+      "apps/marketing/public/favicon-16x16.png",
+    ],
+  },
+  {
+    size: 32,
+    paths: [
+      "assets/prod/fatma-black-web-favicon-32x32.png",
+      "assets/dev/blueprint-web-favicon-32x32.png",
+      "apps/web/public/favicon-32x32.png",
+      "apps/marketing/public/favicon-32x32.png",
+    ],
+  },
+  {
+    size: 180,
+    paths: [
+      "assets/prod/fatma-black-web-apple-touch-180.png",
+      "assets/dev/blueprint-web-apple-touch-180.png",
+      "apps/web/public/apple-touch-icon.png",
+      "apps/marketing/public/apple-touch-icon.png",
+    ],
+  },
+  {
+    size: 192,
+    paths: [
+      "assets/prod/fatma-black-web-app-icon-192.png",
+      "assets/dev/blueprint-web-app-icon-192.png",
+      "apps/web/public/icon-192.png",
+    ],
+  },
+  {
+    size: 512,
+    paths: [
+      "assets/prod/fatma-black-web-app-icon-512.png",
+      "assets/dev/blueprint-web-app-icon-512.png",
+      "apps/web/public/icon-512.png",
+      "apps/desktop/resources/icon.png",
+    ],
+  },
 ];
 
 const ICO_TARGETS = [
@@ -50,14 +89,7 @@ async function ensureSourceExists() {
 }
 
 async function buildMasterPng(targetPath) {
-  await run("magick", [
-    "-background",
-    "none",
-    SOURCE_SVG_PATH,
-    "-resize",
-    "1024x1024",
-    targetPath,
-  ]);
+  await run("magick", ["-background", "none", SOURCE_SVG_PATH, "-resize", "1024x1024", targetPath]);
 }
 
 async function buildSizedPng(masterPath, size, targetPath) {
@@ -65,12 +97,7 @@ async function buildSizedPng(masterPath, size, targetPath) {
 }
 
 async function buildIco(masterPath, targetPath) {
-  await run("magick", [
-    masterPath,
-    "-define",
-    "icon:auto-resize=256,128,64,48,32,16",
-    targetPath,
-  ]);
+  await run("magick", [masterPath, "-define", "icon:auto-resize=256,128,64,48,32,16", targetPath]);
 }
 
 async function buildIcns(masterPath, targetPath, tmpDir) {

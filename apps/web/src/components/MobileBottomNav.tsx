@@ -1,6 +1,11 @@
 import { ProjectId, ThreadId } from "@fatma/contracts";
 import { useNavigate, useParams, useRouterState } from "@tanstack/react-router";
-import { FolderKanbanIcon, GitBranchIcon, MessageSquareTextIcon, TerminalSquareIcon } from "lucide-react";
+import {
+  FolderKanbanIcon,
+  GitBranchIcon,
+  MessageSquareTextIcon,
+  TerminalSquareIcon,
+} from "lucide-react";
 import { useMemo } from "react";
 
 import { useComposerDraftStore } from "../composerDraftStore";

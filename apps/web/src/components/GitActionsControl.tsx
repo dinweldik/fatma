@@ -124,13 +124,7 @@ function commitShortcutLabel(): string {
   return "Ctrl+Enter";
 }
 
-function BranchDelta({
-  aheadCount,
-  behindCount,
-}: {
-  aheadCount: number;
-  behindCount: number;
-}) {
+function BranchDelta({ aheadCount, behindCount }: { aheadCount: number; behindCount: number }) {
   if (aheadCount <= 0 && behindCount <= 0) {
     return <span className="text-muted-foreground/70">In sync</span>;
   }
@@ -211,8 +205,7 @@ function ChangeSection({
         <div className="overflow-hidden rounded-xl border border-border/70 bg-background/70">
           <div className="max-h-64 overflow-y-auto p-1">
             {files.map((file) => {
-              const selected =
-                selectedTarget?.scope === scope && selectedTarget.path === file.path;
+              const selected = selectedTarget?.scope === scope && selectedTarget.path === file.path;
               const iconUrl = getVscodeIconUrlForEntry(file.path, "file", resolvedTheme);
               const directory = dirnameOfPath(file.path);
 
@@ -252,9 +245,7 @@ function ChangeSection({
                           +{file.insertions}
                         </span>
                         <span className="mx-1 text-muted-foreground/60">/</span>
-                        <span className="text-red-600 dark:text-red-300/90">
-                          -{file.deletions}
-                        </span>
+                        <span className="text-red-600 dark:text-red-300/90">-{file.deletions}</span>
                       </span>
                     </div>
                   </button>
@@ -389,7 +380,9 @@ function SourceControlPanel({
     unstagePending;
   const pushDisabled =
     !gitStatus?.branch || pushPending || commitPending || stagePending || unstagePending;
-  const remoteUrl = gitStatus?.remoteUrl?.trim() ? gitStatus.remoteUrl : "No origin remote configured";
+  const remoteUrl = gitStatus?.remoteUrl?.trim()
+    ? gitStatus.remoteUrl
+    : "No origin remote configured";
 
   return (
     <div
@@ -432,7 +425,10 @@ function SourceControlPanel({
               </p>
               {gitStatus ? (
                 <div className="flex items-center gap-2 font-mono text-[11px]">
-                  <BranchDelta aheadCount={gitStatus.aheadCount} behindCount={gitStatus.behindCount} />
+                  <BranchDelta
+                    aheadCount={gitStatus.aheadCount}
+                    behindCount={gitStatus.behindCount}
+                  />
                 </div>
               ) : null}
             </div>
@@ -479,7 +475,11 @@ function SourceControlPanel({
                 value={commitMessage}
                 onChange={(event) => onCommitMessageChange(event.target.value)}
                 onKeyDown={(event) => {
-                  if ((event.metaKey || event.ctrlKey) && event.key === "Enter" && !commitDisabled) {
+                  if (
+                    (event.metaKey || event.ctrlKey) &&
+                    event.key === "Enter" &&
+                    !commitDisabled
+                  ) {
                     event.preventDefault();
                     onCommit();
                   }
@@ -588,7 +588,9 @@ function SourceControlPanel({
                   )}
                 >
                   {selectedFileDiffError ? (
-                    <div className="px-4 py-5 text-sm text-destructive">{selectedFileDiffError}</div>
+                    <div className="px-4 py-5 text-sm text-destructive">
+                      {selectedFileDiffError}
+                    </div>
                   ) : !selectedRenderablePatch ? (
                     <div className="px-4 py-5 text-sm text-muted-foreground">
                       {selectedFileDiffQuery.isLoading || selectedFileDiffQuery.isFetching
@@ -667,7 +669,9 @@ export default function GitActionsControl({
 
   const branchListQuery = useQuery(gitBranchesQueryOptions(gitCwd));
   const initMutation = useMutation(gitInitMutationOptions({ cwd: gitCwd, queryClient }));
-  const stageFilesMutation = useMutation(gitStageFilesMutationOptions({ cwd: gitCwd, queryClient }));
+  const stageFilesMutation = useMutation(
+    gitStageFilesMutationOptions({ cwd: gitCwd, queryClient }),
+  );
   const unstageFilesMutation = useMutation(
     gitUnstageFilesMutationOptions({ cwd: gitCwd, queryClient }),
   );
@@ -789,7 +793,8 @@ export default function GitActionsControl({
       .then((result) => {
         toastManager.add({
           type: result.status === "pulled" ? "success" : "info",
-          title: result.status === "pulled" ? "Fetched and pulled branch" : "Branch already up to date",
+          title:
+            result.status === "pulled" ? "Fetched and pulled branch" : "Branch already up to date",
           description: result.upstreamBranch
             ? `${result.branch} ← ${result.upstreamBranch}`
             : result.branch,

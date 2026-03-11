@@ -27,6 +27,8 @@ import {
   type ServerProviderStatus,
   type KeybindingsConfig,
   type ResolvedKeybindingsConfig,
+  type WsPushChannel,
+  type WsPushMessage,
   type WsPush,
 } from "@fatma/contracts";
 import { compileResolvedKeybindingRule, DEFAULT_KEYBINDINGS } from "./keybindings";
@@ -51,13 +53,6 @@ import { GitCore } from "./git/Services/GitCore.ts";
 import { GitCommandError, GitManagerError } from "./git/Errors.ts";
 import { MigrationError } from "@effect/sql-sqlite-bun/SqliteMigrator";
 import { AnalyticsService } from "./telemetry/Services/AnalyticsService.ts";
-
-interface PendingMessages {
-  queue: unknown[];
-  waiters: Array<(message: unknown) => void>;
-}
-
-const pendingBySocket = new WeakMap<WebSocket, PendingMessages>();
 
 const asEventId = (value: string): EventId => EventId.makeUnsafe(value);
 const asProviderItemId = (value: string): ProviderItemId => ProviderItemId.makeUnsafe(value);
@@ -221,42 +216,67 @@ class MockTerminalManager implements TerminalManagerShape {
   readonly dispose: TerminalManagerShape["dispose"] = Effect.void;
 }
 
-function connectWs(port: number, token?: string): Promise<WebSocket> {
-  return new Promise((resolve, reject) => {
-    const query = token ? `?token=${encodeURIComponent(token)}` : "";
-    const ws = new WebSocket(`ws://127.0.0.1:${port}/${query}`);
-    const pending: PendingMessages = { queue: [], waiters: [] };
-    pendingBySocket.set(ws, pending);
+// ---------------------------------------------------------------------------
+// WebSocket test harness
+//
+// Incoming messages are split into two channels:
+//   - pushChannel: server push envelopes (type === "push")
+//   - responseChannel: request/response envelopes (have an "id" field)
+//
+// This means sendRequest never has to skip push messages and waitForPush
+// never has to skip response messages, eliminating a class of ordering bugs.
+// ---------------------------------------------------------------------------
 
-    ws.on("message", (raw) => {
-      const parsed = JSON.parse(String(raw));
-      const waiter = pending.waiters.shift();
-      if (waiter) {
-        waiter(parsed);
-        return;
-      }
-      pending.queue.push(parsed);
-    });
-
-    ws.once("open", () => resolve(ws));
-    ws.once("error", () => reject(new Error("WebSocket connection failed")));
-  });
+interface MessageChannel<T> {
+  queue: T[];
+  waiters: Array<{
+    resolve: (value: T) => void;
+    reject: (error: Error) => void;
+    timeoutId: ReturnType<typeof setTimeout> | null;
+  }>;
 }
 
-function waitForMessage(ws: WebSocket): Promise<unknown> {
-  const pending = pendingBySocket.get(ws);
-  if (!pending) {
-    return Promise.reject(new Error("WebSocket not initialized"));
-  }
+interface SocketChannels {
+  push: MessageChannel<WsPush>;
+  response: MessageChannel<WebSocketResponse>;
+}
 
-  const queued = pending.queue.shift();
+const channelsBySocket = new WeakMap<WebSocket, SocketChannels>();
+
+function enqueue<T>(channel: MessageChannel<T>, item: T) {
+  const waiter = channel.waiters.shift();
+  if (waiter) {
+    if (waiter.timeoutId !== null) clearTimeout(waiter.timeoutId);
+    waiter.resolve(item);
+    return;
+  }
+  channel.queue.push(item);
+}
+
+function dequeue<T>(channel: MessageChannel<T>, timeoutMs: number): Promise<T> {
+  const queued = channel.queue.shift();
   if (queued !== undefined) {
     return Promise.resolve(queued);
   }
 
-  return new Promise((resolve) => {
-    pending.waiters.push(resolve);
+  return new Promise((resolve, reject) => {
+    const waiter = {
+      resolve,
+      reject,
+      timeoutId: setTimeout(() => {
+        const index = channel.waiters.indexOf(waiter);
+        if (index >= 0) channel.waiters.splice(index, 1);
+        reject(new Error(`Timed out waiting for WebSocket message after ${timeoutMs}ms`));
+      }, timeoutMs) as ReturnType<typeof setTimeout>,
+    };
+    channel.waiters.push(waiter);
   });
+}
+
+function isWsPushEnvelope(message: unknown): message is WsPush {
+  if (typeof message !== "object" || message === null) return false;
+  if (!("type" in message) || !("channel" in message)) return false;
+  return (message as { type?: unknown }).type === "push";
 }
 
 function asWebSocketResponse(message: unknown): WebSocketResponse | null {
@@ -267,11 +287,68 @@ function asWebSocketResponse(message: unknown): WebSocketResponse | null {
   return message as WebSocketResponse;
 }
 
+function connectWsOnce(port: number, token?: string): Promise<WebSocket> {
+  return new Promise((resolve, reject) => {
+    const query = token ? `?token=${encodeURIComponent(token)}` : "";
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/${query}`);
+    const channels: SocketChannels = {
+      push: { queue: [], waiters: [] },
+      response: { queue: [], waiters: [] },
+    };
+    channelsBySocket.set(ws, channels);
+
+    ws.on("message", (raw) => {
+      const parsed = JSON.parse(String(raw));
+      if (isWsPushEnvelope(parsed)) {
+        enqueue(channels.push, parsed);
+      } else {
+        const response = asWebSocketResponse(parsed);
+        if (response) {
+          enqueue(channels.response, response);
+        }
+      }
+    });
+
+    ws.once("open", () => resolve(ws));
+    ws.once("error", () => reject(new Error("WebSocket connection failed")));
+  });
+}
+
+async function connectWs(port: number, token?: string, attempts = 5): Promise<WebSocket> {
+  let lastError: unknown = new Error("WebSocket connection failed");
+
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      return await connectWsOnce(port, token);
+    } catch (error) {
+      lastError = error;
+      if (attempt < attempts - 1) {
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+    }
+  }
+
+  throw lastError;
+}
+
+/** Connect and wait for the server.welcome push. Returns [ws, welcomeData]. */
+async function connectAndAwaitWelcome(
+  port: number,
+  token?: string,
+): Promise<[WebSocket, WsPushMessage<typeof WS_CHANNELS.serverWelcome>]> {
+  const ws = await connectWs(port, token);
+  const welcome = await waitForPush(ws, WS_CHANNELS.serverWelcome);
+  return [ws, welcome];
+}
+
 async function sendRequest(
   ws: WebSocket,
   method: string,
   params?: unknown,
 ): Promise<WebSocketResponse> {
+  const channels = channelsBySocket.get(ws);
+  if (!channels) throw new Error("WebSocket not initialized");
+
   const id = crypto.randomUUID();
   const body =
     method === ORCHESTRATION_WS_METHODS.dispatchCommand
@@ -279,44 +356,53 @@ async function sendRequest(
       : params && typeof params === "object" && !Array.isArray(params)
         ? { _tag: method, ...(params as Record<string, unknown>) }
         : { _tag: method };
-  const message = JSON.stringify({ id, body });
-  ws.send(message);
+  ws.send(JSON.stringify({ id, body }));
 
-  // Wait for response with matching id
+  // Response channel only contains responses — no push filtering needed
   while (true) {
-    const parsed = asWebSocketResponse(await waitForMessage(ws));
-    if (!parsed) {
-      continue;
-    }
-    if (parsed.id === id) {
-      return parsed;
-    }
-    if (parsed.id === "unknown") {
-      return parsed;
+    const response = await dequeue(channels.response, 60_000);
+    if (response.id === id || response.id === "unknown") {
+      return response;
     }
   }
 }
 
-async function waitForPush(
+async function waitForPush<C extends WsPushChannel>(
   ws: WebSocket,
-  channel: string,
-  predicate?: (push: WsPush) => boolean,
+  channel: C,
+  predicate?: (push: WsPushMessage<C>) => boolean,
   maxMessages = 120,
-): Promise<WsPush> {
-  const take = async (remaining: number): Promise<WsPush> => {
-    if (remaining <= 0) {
-      throw new Error(`Timed out waiting for push on ${channel}`);
+  idleTimeoutMs = 5_000,
+): Promise<WsPushMessage<C>> {
+  const channels = channelsBySocket.get(ws);
+  if (!channels) throw new Error("WebSocket not initialized");
+
+  for (let remaining = maxMessages; remaining > 0; remaining--) {
+    const push = await dequeue(channels.push, idleTimeoutMs);
+    if (push.channel !== channel) continue;
+    const typed = push as WsPushMessage<C>;
+    if (!predicate || predicate(typed)) return typed;
+  }
+  throw new Error(`Timed out waiting for push on ${channel}`);
+}
+
+async function rewriteKeybindingsAndWaitForPush(
+  ws: WebSocket,
+  keybindingsPath: string,
+  contents: string,
+  predicate: (push: WsPushMessage<typeof WS_CHANNELS.serverConfigUpdated>) => boolean,
+  attempts = 3,
+): Promise<WsPushMessage<typeof WS_CHANNELS.serverConfigUpdated>> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    fs.writeFileSync(keybindingsPath, contents, "utf8");
+    try {
+      return await waitForPush(ws, WS_CHANNELS.serverConfigUpdated, predicate, 20, 3_000);
+    } catch (error) {
+      lastError = error;
     }
-    const message = (await waitForMessage(ws)) as WsPush;
-    if (message.type !== "push" || message.channel !== channel) {
-      return take(remaining - 1);
-    }
-    if (!predicate || predicate(message)) {
-      return message;
-    }
-    return take(remaining - 1);
-  };
-  return take(maxMessages);
+  }
+  throw lastError;
 }
 
 async function requestPath(
@@ -501,18 +587,15 @@ describe("WebSocket Server", () => {
 
   it("sends welcome message on connect", async () => {
     server = await createTestServer({ cwd: "/test/project" });
-    // Get the actual port after listen
     const addr = server.address();
     const port = typeof addr === "object" && addr !== null ? addr.port : 0;
     expect(port).toBeGreaterThan(0);
 
-    const ws = await connectWs(port);
+    const [ws, welcome] = await connectAndAwaitWelcome(port);
     connections.push(ws);
 
-    const message = (await waitForMessage(ws)) as WsPush;
-    expect(message.type).toBe("push");
-    expect(message.channel).toBe(WS_CHANNELS.serverWelcome);
-    expect(message.data).toEqual({
+    expect(welcome.type).toBe("push");
+    expect(welcome.data).toEqual({
       cwd: "/test/project",
       projectName: "project",
     });
@@ -655,7 +738,11 @@ describe("WebSocket Server", () => {
     const stateDir = makeTempDir("fatma-state-static-sw-");
     const staticDir = makeTempDir("fatma-static-sw-");
     fs.writeFileSync(path.join(staticDir, "index.html"), "<h1>static-root</h1>", "utf8");
-    fs.writeFileSync(path.join(staticDir, "sw.js"), "self.addEventListener('fetch', () => {});", "utf8");
+    fs.writeFileSync(
+      path.join(staticDir, "sw.js"),
+      "self.addEventListener('fetch', () => {});",
+      "utf8",
+    );
 
     server = await createTestServer({ cwd: "/test/project", stateDir, staticDir });
     const addr = server.address();
@@ -694,10 +781,8 @@ describe("WebSocket Server", () => {
     const port = typeof addr === "object" && addr !== null ? addr.port : 0;
     expect(port).toBeGreaterThan(0);
 
-    const ws = await connectWs(port);
+    const [ws, welcome] = await connectAndAwaitWelcome(port);
     connections.push(ws);
-    const welcome = (await waitForMessage(ws)) as WsPush; // welcome
-    expect(welcome.channel).toBe(WS_CHANNELS.serverWelcome);
     expect(welcome.data).toEqual(
       expect.objectContaining({
         cwd: "/test/bootstrap-workspace",
@@ -771,9 +856,8 @@ describe("WebSocket Server", () => {
     let port = typeof addr === "object" && addr !== null ? addr.port : 0;
     expect(port).toBeGreaterThan(0);
 
-    const firstWs = await connectWs(port);
+    const [firstWs, firstWelcome] = await connectAndAwaitWelcome(port);
     connections.push(firstWs);
-    const firstWelcome = (await waitForMessage(firstWs)) as WsPush;
     const firstBootstrapProjectId = (firstWelcome.data as { bootstrapProjectId?: string })
       .bootstrapProjectId;
     const firstBootstrapThreadId = (firstWelcome.data as { bootstrapThreadId?: string })
@@ -795,10 +879,8 @@ describe("WebSocket Server", () => {
     port = typeof addr === "object" && addr !== null ? addr.port : 0;
     expect(port).toBeGreaterThan(0);
 
-    const secondWs = await connectWs(port);
+    const [secondWs, secondWelcome] = await connectAndAwaitWelcome(port);
     connections.push(secondWs);
-    const secondWelcome = (await waitForMessage(secondWs)) as WsPush;
-    expect(secondWelcome.channel).toBe(WS_CHANNELS.serverWelcome);
     expect(secondWelcome.data).toEqual(
       expect.objectContaining({
         cwd,
@@ -822,9 +904,8 @@ describe("WebSocket Server", () => {
     const port = typeof addr === "object" && addr !== null ? addr.port : 0;
     expect(port).toBeGreaterThan(0);
 
-    const ws = await connectWs(port);
+    const [ws] = await connectAndAwaitWelcome(port);
     connections.push(ws);
-    await waitForMessage(ws);
 
     expect(
       logSpy.mock.calls.some(([message]) => {
@@ -847,11 +928,8 @@ describe("WebSocket Server", () => {
     const addr = server.address();
     const port = typeof addr === "object" && addr !== null ? addr.port : 0;
 
-    const ws = await connectWs(port);
+    const [ws] = await connectAndAwaitWelcome(port);
     connections.push(ws);
-
-    // Consume welcome message
-    await waitForMessage(ws);
 
     const response = await sendRequest(ws, WS_METHODS.serverGetConfig);
     expect(response.error).toBeUndefined();
@@ -876,9 +954,8 @@ describe("WebSocket Server", () => {
     const addr = server.address();
     const port = typeof addr === "object" && addr !== null ? addr.port : 0;
 
-    const ws = await connectWs(port);
+    const [ws] = await connectAndAwaitWelcome(port);
     connections.push(ws);
-    await waitForMessage(ws);
 
     const response = await sendRequest(ws, WS_METHODS.serverGetConfig);
     expect(response.error).toBeUndefined();
@@ -908,9 +985,8 @@ describe("WebSocket Server", () => {
     const addr = server.address();
     const port = typeof addr === "object" && addr !== null ? addr.port : 0;
 
-    const ws = await connectWs(port);
+    const [ws] = await connectAndAwaitWelcome(port);
     connections.push(ws);
-    await waitForMessage(ws);
 
     const response = await sendRequest(ws, WS_METHODS.serverGetConfig);
     expect(response.error).toBeUndefined();
@@ -949,9 +1025,8 @@ describe("WebSocket Server", () => {
     const addr = server.address();
     const port = typeof addr === "object" && addr !== null ? addr.port : 0;
 
-    const ws = await connectWs(port);
+    const [ws] = await connectAndAwaitWelcome(port);
     connections.push(ws);
-    await waitForMessage(ws);
 
     const response = await sendRequest(ws, WS_METHODS.serverGetConfig);
     expect(response.error).toBeUndefined();
@@ -995,32 +1070,28 @@ describe("WebSocket Server", () => {
     const addr = server.address();
     const port = typeof addr === "object" && addr !== null ? addr.port : 0;
 
-    const ws = await connectWs(port);
+    const [ws] = await connectAndAwaitWelcome(port);
     connections.push(ws);
-    await waitForMessage(ws);
 
-    fs.writeFileSync(keybindingsPath, "{ not-json", "utf8");
-    const malformedPush = await waitForPush(
+    const malformedPush = await rewriteKeybindingsAndWaitForPush(
       ws,
-      WS_CHANNELS.serverConfigUpdated,
+      keybindingsPath,
+      "{ not-json",
       (push) =>
-        Array.isArray((push.data as { issues?: unknown[] }).issues) &&
-        Boolean((push.data as { issues: Array<{ kind: string }> }).issues[0]) &&
-        (push.data as { issues: Array<{ kind: string }> }).issues[0]!.kind ===
-          "keybindings.malformed-config",
+        Array.isArray(push.data.issues) &&
+        Boolean(push.data.issues[0]) &&
+        push.data.issues[0]!.kind === "keybindings.malformed-config",
     );
     expect(malformedPush.data).toEqual({
       issues: [{ kind: "keybindings.malformed-config", message: expect.any(String) }],
       providers: defaultProviderStatuses,
     });
 
-    fs.writeFileSync(keybindingsPath, "[]", "utf8");
-    const successPush = await waitForPush(
+    const successPush = await rewriteKeybindingsAndWaitForPush(
       ws,
-      WS_CHANNELS.serverConfigUpdated,
-      (push) =>
-        Array.isArray((push.data as { issues?: unknown[] }).issues) &&
-        (push.data as { issues: unknown[] }).issues.length === 0,
+      keybindingsPath,
+      "[]",
+      (push) => Array.isArray(push.data.issues) && push.data.issues.length === 0,
     );
     expect(successPush.data).toEqual({ issues: [], providers: defaultProviderStatuses });
   });
@@ -1039,9 +1110,8 @@ describe("WebSocket Server", () => {
     const addr = server.address();
     const port = typeof addr === "object" && addr !== null ? addr.port : 0;
 
-    const ws = await connectWs(port);
+    const [ws] = await connectAndAwaitWelcome(port);
     connections.push(ws);
-    await waitForMessage(ws);
 
     const response = await sendRequest(ws, WS_METHODS.shellOpenInEditor, {
       cwd: "/my/workspace",
@@ -1067,10 +1137,8 @@ describe("WebSocket Server", () => {
     const addr = server.address();
     const port = typeof addr === "object" && addr !== null ? addr.port : 0;
 
-    const ws = await connectWs(port);
+    const [ws] = await connectAndAwaitWelcome(port);
     connections.push(ws);
-
-    await waitForMessage(ws);
 
     const response = await sendRequest(ws, WS_METHODS.serverGetConfig);
     expect(response.error).toBeUndefined();
@@ -1102,9 +1170,8 @@ describe("WebSocket Server", () => {
     const addr = server.address();
     const port = typeof addr === "object" && addr !== null ? addr.port : 0;
 
-    const ws = await connectWs(port);
+    const [ws] = await connectAndAwaitWelcome(port);
     connections.push(ws);
-    await waitForMessage(ws);
 
     const upsertResponse = await sendRequest(ws, WS_METHODS.serverUpsertKeybinding, {
       key: "mod+shift+r",
@@ -1145,11 +1212,8 @@ describe("WebSocket Server", () => {
     const addr = server.address();
     const port = typeof addr === "object" && addr !== null ? addr.port : 0;
 
-    const ws = await connectWs(port);
+    const [ws] = await connectAndAwaitWelcome(port);
     connections.push(ws);
-
-    // Consume welcome push
-    await waitForMessage(ws);
 
     const response = await sendRequest(ws, "nonexistent.method");
     expect(response.error).toBeDefined();
@@ -1161,9 +1225,8 @@ describe("WebSocket Server", () => {
     const addr = server.address();
     const port = typeof addr === "object" && addr !== null ? addr.port : 0;
 
-    const ws = await connectWs(port);
+    const [ws] = await connectAndAwaitWelcome(port);
     connections.push(ws);
-    await waitForMessage(ws);
 
     const response = await sendRequest(ws, ORCHESTRATION_WS_METHODS.getTurnDiff, {
       threadId: "thread-missing",
@@ -1179,9 +1242,8 @@ describe("WebSocket Server", () => {
     const addr = server.address();
     const port = typeof addr === "object" && addr !== null ? addr.port : 0;
 
-    const ws = await connectWs(port);
+    const [ws] = await connectAndAwaitWelcome(port);
     connections.push(ws);
-    await waitForMessage(ws);
 
     const response = await sendRequest(ws, ORCHESTRATION_WS_METHODS.getTurnDiff, {
       threadId: "thread-any",
@@ -1199,9 +1261,8 @@ describe("WebSocket Server", () => {
     const addr = server.address();
     const port = typeof addr === "object" && addr !== null ? addr.port : 0;
 
-    const ws = await connectWs(port);
+    const [ws] = await connectAndAwaitWelcome(port);
     connections.push(ws);
-    await waitForMessage(ws);
 
     const response = await sendRequest(ws, ORCHESTRATION_WS_METHODS.getFullThreadDiff, {
       threadId: "thread-missing",
@@ -1216,9 +1277,8 @@ describe("WebSocket Server", () => {
     const addr = server.address();
     const port = typeof addr === "object" && addr !== null ? addr.port : 0;
 
-    const ws = await connectWs(port);
+    const [ws] = await connectAndAwaitWelcome(port);
     connections.push(ws);
-    await waitForMessage(ws);
 
     const workspaceRoot = makeTempDir("fatma-ws-diff-project-");
     const createdAt = new Date().toISOString();
@@ -1295,9 +1355,8 @@ describe("WebSocket Server", () => {
     const addr = server.address();
     const port = typeof addr === "object" && addr !== null ? addr.port : 0;
 
-    const ws = await connectWs(port);
+    const [ws] = await connectAndAwaitWelcome(port);
     connections.push(ws);
-    await waitForMessage(ws);
 
     const workspaceRoot = makeTempDir("fatma-ws-project-");
     const createdAt = new Date().toISOString();
@@ -1348,21 +1407,19 @@ describe("WebSocket Server", () => {
       return event.type === "thread.session-set";
     });
 
-    emitRuntimeEvent(
-      {
-        type: "content.delta",
-        eventId: asEventId("evt-ws-runtime-message-delta"),
-        provider: "codex",
-        threadId: asThreadId("thread-1"),
-        createdAt: new Date().toISOString(),
-        turnId: asTurnId("turn-1"),
-        itemId: asProviderItemId("item-1"),
-        payload: {
-          streamKind: "assistant_text",
-          delta: "hello from runtime",
-        },
-      } as unknown as ProviderRuntimeEvent,
-    );
+    emitRuntimeEvent({
+      type: "content.delta",
+      eventId: asEventId("evt-ws-runtime-message-delta"),
+      provider: "codex",
+      threadId: asThreadId("thread-1"),
+      createdAt: new Date().toISOString(),
+      turnId: asTurnId("turn-1"),
+      itemId: asProviderItemId("item-1"),
+      payload: {
+        streamKind: "assistant_text",
+        delta: "hello from runtime",
+      },
+    } as unknown as ProviderRuntimeEvent);
 
     const domainPush = await waitForPush(ws, ORCHESTRATION_WS_CHANNELS.domainEvent, (push) => {
       const event = push.data as { type?: string; payload?: { messageId?: string; text?: string } };
@@ -1390,9 +1447,8 @@ describe("WebSocket Server", () => {
     const addr = server.address();
     const port = typeof addr === "object" && addr !== null ? addr.port : 0;
 
-    const ws = await connectWs(port);
+    const [ws] = await connectAndAwaitWelcome(port);
     connections.push(ws);
-    await waitForMessage(ws);
 
     const open = await sendRequest(ws, WS_METHODS.terminalOpen, {
       threadId: "thread-1",
@@ -1445,10 +1501,13 @@ describe("WebSocket Server", () => {
     };
     terminalManager.emitEvent(manualEvent);
 
-    const push = (await waitForMessage(ws)) as WsPush;
+    const push = await waitForPush(
+      ws,
+      WS_CHANNELS.terminalEvent,
+      (candidate) => (candidate.data as TerminalEvent).type === "output",
+    );
     expect(push.type).toBe("push");
     expect(push.channel).toBe(WS_CHANNELS.terminalEvent);
-    expect((push.data as TerminalEvent).type).toBe("output");
   });
 
   it("detaches terminal event listener on stop for injected manager", async () => {
@@ -1471,9 +1530,8 @@ describe("WebSocket Server", () => {
     const addr = server.address();
     const port = typeof addr === "object" && addr !== null ? addr.port : 0;
 
-    const ws = await connectWs(port);
+    const [ws] = await connectAndAwaitWelcome(port);
     connections.push(ws);
-    await waitForMessage(ws);
 
     const response = await sendRequest(ws, WS_METHODS.terminalOpen, {
       threadId: "",
@@ -1489,21 +1547,17 @@ describe("WebSocket Server", () => {
     const addr = server.address();
     const port = typeof addr === "object" && addr !== null ? addr.port : 0;
 
-    const ws = await connectWs(port);
+    const [ws] = await connectAndAwaitWelcome(port);
     connections.push(ws);
-
-    // Consume welcome
-    await waitForMessage(ws);
 
     // Send garbage
     ws.send("not json at all");
 
+    // Error response goes to the response channel
+    const channels = channelsBySocket.get(ws)!;
     let response: WebSocketResponse | null = null;
     for (let attempt = 0; attempt < 5; attempt += 1) {
-      const message = asWebSocketResponse(await waitForMessage(ws));
-      if (!message) {
-        continue;
-      }
+      const message = await dequeue(channels.response, 5_000);
       if (message.id === "unknown") {
         response = message;
         break;
@@ -1536,9 +1590,8 @@ describe("WebSocket Server", () => {
       const addr = server.address();
       const port = typeof addr === "object" && addr !== null ? addr.port : 0;
 
-      const ws = await connectWs(port);
+      const [ws] = await connectAndAwaitWelcome(port);
       connections.push(ws);
-      await waitForMessage(ws);
 
       ws.send(
         JSON.stringify({
@@ -1582,9 +1635,8 @@ describe("WebSocket Server", () => {
     const addr = server.address();
     const port = typeof addr === "object" && addr !== null ? addr.port : 0;
 
-    const ws = await connectWs(port);
+    const [ws] = await connectAndAwaitWelcome(port);
     connections.push(ws);
-    await waitForMessage(ws);
 
     const listResponse = await sendRequest(ws, WS_METHODS.projectsList);
     expect(listResponse.result).toBeUndefined();
@@ -1619,9 +1671,8 @@ describe("WebSocket Server", () => {
     const addr = server.address();
     const port = typeof addr === "object" && addr !== null ? addr.port : 0;
 
-    const ws = await connectWs(port);
+    const [ws] = await connectAndAwaitWelcome(port);
     connections.push(ws);
-    await waitForMessage(ws);
 
     const response = await sendRequest(ws, WS_METHODS.projectsSearchEntries, {
       cwd: workspace,
@@ -1648,9 +1699,8 @@ describe("WebSocket Server", () => {
     const addr = server.address();
     const port = typeof addr === "object" && addr !== null ? addr.port : 0;
 
-    const ws = await connectWs(port);
+    const [ws] = await connectAndAwaitWelcome(port);
     connections.push(ws);
-    await waitForMessage(ws);
 
     const response = await sendRequest(ws, WS_METHODS.projectsBrowseDirectory, {
       rootPath: workspace,
@@ -1677,9 +1727,8 @@ describe("WebSocket Server", () => {
     const addr = server.address();
     const port = typeof addr === "object" && addr !== null ? addr.port : 0;
 
-    const ws = await connectWs(port);
+    const [ws] = await connectAndAwaitWelcome(port);
     connections.push(ws);
-    await waitForMessage(ws);
 
     const response = await sendRequest(ws, WS_METHODS.projectsCreateDirectory, {
       rootPath: workspace,
@@ -1702,9 +1751,8 @@ describe("WebSocket Server", () => {
     const addr = server.address();
     const port = typeof addr === "object" && addr !== null ? addr.port : 0;
 
-    const ws = await connectWs(port);
+    const [ws] = await connectAndAwaitWelcome(port);
     connections.push(ws);
-    await waitForMessage(ws);
 
     const response = await sendRequest(ws, WS_METHODS.projectsCreateDirectory, {
       rootPath: workspace,
@@ -1724,9 +1772,8 @@ describe("WebSocket Server", () => {
     const addr = server.address();
     const port = typeof addr === "object" && addr !== null ? addr.port : 0;
 
-    const ws = await connectWs(port);
+    const [ws] = await connectAndAwaitWelcome(port);
     connections.push(ws);
-    await waitForMessage(ws);
 
     const response = await sendRequest(ws, WS_METHODS.projectsWriteFile, {
       cwd: workspace,
@@ -1750,9 +1797,8 @@ describe("WebSocket Server", () => {
     const addr = server.address();
     const port = typeof addr === "object" && addr !== null ? addr.port : 0;
 
-    const ws = await connectWs(port);
+    const [ws] = await connectAndAwaitWelcome(port);
     connections.push(ws);
-    await waitForMessage(ws);
 
     const response = await sendRequest(ws, WS_METHODS.projectsWriteFile, {
       cwd: workspace,
@@ -1761,7 +1807,9 @@ describe("WebSocket Server", () => {
     });
 
     expect(response.result).toBeUndefined();
-    expect(response.error?.message).toContain("Workspace file path must stay within the project root.");
+    expect(response.error?.message).toContain(
+      "Workspace file path must stay within the project root.",
+    );
     expect(fs.existsSync(path.join(workspace, "..", "escape.md"))).toBe(false);
   });
 
@@ -1770,6 +1818,7 @@ describe("WebSocket Server", () => {
       Effect.succeed({
         branches: [],
         isRepo: false,
+        hasOriginRemote: false,
       }),
     );
     const initRepo = vi.fn(() => Effect.void);
@@ -1801,13 +1850,12 @@ describe("WebSocket Server", () => {
     const addr = server.address();
     const port = typeof addr === "object" && addr !== null ? addr.port : 0;
 
-    const ws = await connectWs(port);
+    const [ws] = await connectAndAwaitWelcome(port);
     connections.push(ws);
-    await waitForMessage(ws);
 
     const listResponse = await sendRequest(ws, WS_METHODS.gitListBranches, { cwd: "/repo/path" });
     expect(listResponse.error).toBeUndefined();
-    expect(listResponse.result).toEqual({ branches: [], isRepo: false });
+    expect(listResponse.result).toEqual({ branches: [], isRepo: false, hasOriginRemote: false });
     expect(listBranches).toHaveBeenCalledWith({ cwd: "/repo/path" });
 
     const initResponse = await sendRequest(ws, WS_METHODS.gitInit, { cwd: "/repo/path" });
@@ -1837,15 +1885,21 @@ describe("WebSocket Server", () => {
 
     const status = vi.fn(() => Effect.succeed(statusResult));
     const runStackedAction = vi.fn(() => Effect.void as any);
-    const gitManager: GitManagerShape = { status, runStackedAction };
+    const resolvePullRequest = vi.fn(() => Effect.void as any);
+    const preparePullRequestThread = vi.fn(() => Effect.void as any);
+    const gitManager: GitManagerShape = {
+      status,
+      resolvePullRequest,
+      preparePullRequestThread,
+      runStackedAction,
+    };
 
     server = await createTestServer({ cwd: "/test", gitManager });
     const addr = server.address();
     const port = typeof addr === "object" && addr !== null ? addr.port : 0;
 
-    const ws = await connectWs(port);
+    const [ws] = await connectAndAwaitWelcome(port);
     connections.push(ws);
-    await waitForMessage(ws);
 
     const response = await sendRequest(ws, WS_METHODS.gitStatus, {
       cwd: "/test",
@@ -1866,7 +1920,9 @@ describe("WebSocket Server", () => {
     server = await createTestServer({
       cwd: "/test",
       gitCore: {
-        listBranches: vi.fn(() => Effect.succeed({ branches: [], isRepo: true })),
+        listBranches: vi.fn(() =>
+          Effect.succeed({ branches: [], isRepo: true, hasOriginRemote: false }),
+        ),
         initRepo: vi.fn(() => Effect.void),
         pullCurrentBranch: vi.fn(() => Effect.void as any),
         readWorkingTreeFileDiff,
@@ -1875,9 +1931,8 @@ describe("WebSocket Server", () => {
     const addr = server.address();
     const port = typeof addr === "object" && addr !== null ? addr.port : 0;
 
-    const ws = await connectWs(port);
+    const [ws] = await connectAndAwaitWelcome(port);
     connections.push(ws);
-    await waitForMessage(ws);
 
     const response = await sendRequest(ws, WS_METHODS.gitReadWorkingTreeFileDiff, {
       cwd: "/test",
@@ -1894,6 +1949,62 @@ describe("WebSocket Server", () => {
     });
   });
 
+  it("supports git pull request routing over websocket", async () => {
+    const resolvePullRequestResult = {
+      pullRequest: {
+        number: 42,
+        title: "PR thread flow",
+        url: "https://github.com/dinweldik/fatma/pull/42",
+        baseBranch: "main",
+        headBranch: "feature/pr-threads",
+        state: "open" as const,
+      },
+    };
+    const preparePullRequestThreadResult = {
+      ...resolvePullRequestResult,
+      branch: "feature/pr-threads",
+      worktreePath: "/tmp/pr-threads",
+    };
+
+    const gitManager: GitManagerShape = {
+      status: vi.fn(() => Effect.void as any),
+      resolvePullRequest: vi.fn(() => Effect.succeed(resolvePullRequestResult)),
+      preparePullRequestThread: vi.fn(() => Effect.succeed(preparePullRequestThreadResult)),
+      runStackedAction: vi.fn(() => Effect.void as any),
+    };
+
+    server = await createTestServer({ cwd: "/test", gitManager });
+    const addr = server.address();
+    const port = typeof addr === "object" && addr !== null ? addr.port : 0;
+
+    const [ws] = await connectAndAwaitWelcome(port);
+    connections.push(ws);
+
+    const resolveResponse = await sendRequest(ws, WS_METHODS.gitResolvePullRequest, {
+      cwd: "/test",
+      reference: "#42",
+    });
+    expect(resolveResponse.error).toBeUndefined();
+    expect(resolveResponse.result).toEqual(resolvePullRequestResult);
+
+    const prepareResponse = await sendRequest(ws, WS_METHODS.gitPreparePullRequestThread, {
+      cwd: "/test",
+      reference: "42",
+      mode: "worktree",
+    });
+    expect(prepareResponse.error).toBeUndefined();
+    expect(prepareResponse.result).toEqual(preparePullRequestThreadResult);
+    expect(gitManager.resolvePullRequest).toHaveBeenCalledWith({
+      cwd: "/test",
+      reference: "#42",
+    });
+    expect(gitManager.preparePullRequestThread).toHaveBeenCalledWith({
+      cwd: "/test",
+      reference: "42",
+      mode: "worktree",
+    });
+  });
+
   it("returns errors from git.runStackedAction", async () => {
     const runStackedAction = vi.fn(() =>
       Effect.fail(
@@ -1905,6 +2016,8 @@ describe("WebSocket Server", () => {
     );
     const gitManager: GitManagerShape = {
       status: vi.fn(() => Effect.void as any),
+      resolvePullRequest: vi.fn(() => Effect.void as any),
+      preparePullRequestThread: vi.fn(() => Effect.void as any),
       runStackedAction,
     };
 
@@ -1912,9 +2025,8 @@ describe("WebSocket Server", () => {
     const addr = server.address();
     const port = typeof addr === "object" && addr !== null ? addr.port : 0;
 
-    const ws = await connectWs(port);
+    const [ws] = await connectAndAwaitWelcome(port);
     connections.push(ws);
-    await waitForMessage(ws);
 
     const response = await sendRequest(ws, WS_METHODS.gitRunStackedAction, {
       cwd: "/test",
@@ -1935,9 +2047,7 @@ describe("WebSocket Server", () => {
 
     await expect(connectWs(port)).rejects.toThrow("WebSocket connection failed");
 
-    const authorizedWs = await connectWs(port, "secret-token");
+    const [authorizedWs] = await connectAndAwaitWelcome(port, "secret-token");
     connections.push(authorizedWs);
-    const welcome = (await waitForMessage(authorizedWs)) as WsPush;
-    expect(welcome.channel).toBe(WS_CHANNELS.serverWelcome);
   });
 });

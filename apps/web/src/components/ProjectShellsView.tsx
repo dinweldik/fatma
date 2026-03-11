@@ -605,9 +605,7 @@ function ShellTabButton(props: {
       type="button"
       className={cn(
         "group inline-flex shrink-0 items-center gap-2 rounded-none border text-left transition-colors duration-150",
-        props.mobile
-          ? "min-w-[8.5rem] px-3 py-2.5"
-          : "w-full justify-between px-3 py-3 text-sm",
+        props.mobile ? "min-w-[8.5rem] px-3 py-2.5" : "w-full justify-between px-3 py-3 text-sm",
         props.isActive
           ? "border-white/12 bg-white/8 text-foreground shadow-[0_12px_40px_rgba(0,0,0,0.2)]"
           : "border-white/6 bg-black/10 text-muted-foreground hover:border-white/12 hover:bg-white/5 hover:text-foreground",
@@ -1019,7 +1017,9 @@ export default function ProjectShellsView({
             </div>
             <div className="flex items-center gap-1">
               <Button
-                aria-label={newShellShortcutLabel ? `Add shell (${newShellShortcutLabel})` : "Add shell"}
+                aria-label={
+                  newShellShortcutLabel ? `Add shell (${newShellShortcutLabel})` : "Add shell"
+                }
                 className="rounded-none before:rounded-none"
                 size="icon-xs"
                 title={newShellShortcutLabel ? `Add shell (${newShellShortcutLabel})` : "Add shell"}
@@ -1107,7 +1107,9 @@ export default function ProjectShellsView({
 
           <div className="flex items-center gap-2">
             <Button
-              aria-label={newShellShortcutLabel ? `Add shell (${newShellShortcutLabel})` : "Add shell"}
+              aria-label={
+                newShellShortcutLabel ? `Add shell (${newShellShortcutLabel})` : "Add shell"
+              }
               className="rounded-none before:rounded-none"
               size="icon-sm"
               title={newShellShortcutLabel ? `Add shell (${newShellShortcutLabel})` : "Add shell"}

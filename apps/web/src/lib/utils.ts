@@ -49,3 +49,7 @@ export const newProjectId = (): ProjectId => ProjectId.makeUnsafe(randomUuid());
 export const newThreadId = (): ThreadId => ThreadId.makeUnsafe(randomUuid());
 
 export const newMessageId = (): MessageId => MessageId.makeUnsafe(randomUuid());
+
+export function randomUUID(): string {
+  return randomUuid();
+}

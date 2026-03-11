@@ -1,11 +1,4 @@
-import {
-  createContext,
-  useContext,
-  useEffect,
-  useMemo,
-  useState,
-  type ReactNode,
-} from "react";
+import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { useMediaQuery } from "./hooks/useMediaQuery";
 
@@ -23,9 +16,7 @@ const DEFAULT_MOBILE_VIEWPORT_METRICS: MobileViewportMetrics = {
   viewportHeight: null,
 };
 
-const MobileViewportContext = createContext<MobileViewportMetrics>(
-  DEFAULT_MOBILE_VIEWPORT_METRICS,
-);
+const MobileViewportContext = createContext<MobileViewportMetrics>(DEFAULT_MOBILE_VIEWPORT_METRICS);
 
 export function resolveMobileViewportMetrics(input: {
   readonly innerHeight: number;
@@ -35,8 +26,7 @@ export function resolveMobileViewportMetrics(input: {
 }): Omit<MobileViewportMetrics, "isMobile"> {
   const innerHeight = Number.isFinite(input.innerHeight) ? Math.max(0, input.innerHeight) : 0;
   const layoutViewportHeight =
-    typeof input.layoutViewportHeight === "number" &&
-    Number.isFinite(input.layoutViewportHeight)
+    typeof input.layoutViewportHeight === "number" && Number.isFinite(input.layoutViewportHeight)
       ? Math.max(0, input.layoutViewportHeight)
       : innerHeight;
   const visualViewportHeight =
@@ -49,7 +39,7 @@ export function resolveMobileViewportMetrics(input: {
       ? Math.max(0, input.visualViewportOffsetTop)
       : 0;
   const viewportHeight =
-    visualViewportHeight > 0 ? visualViewportHeight : (innerHeight || layoutViewportHeight || null);
+    visualViewportHeight > 0 ? visualViewportHeight : innerHeight || layoutViewportHeight || null;
   const keyboardInset =
     viewportHeight === null
       ? 0

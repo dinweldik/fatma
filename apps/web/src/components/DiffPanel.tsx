@@ -3,7 +3,14 @@ import { useQuery } from "@tanstack/react-query";
 import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { ThreadId, type TurnId } from "@fatma/contracts";
 import { ChevronLeftIcon, ChevronRightIcon, Columns2Icon, Rows3Icon } from "lucide-react";
-import { type WheelEvent as ReactWheelEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type WheelEvent as ReactWheelEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { gitBranchesQueryOptions } from "~/lib/gitReactQuery";
 import { checkpointDiffQueryOptions } from "~/lib/providerReactQuery";
 import { cn } from "~/lib/utils";
@@ -363,7 +370,12 @@ export default function DiffPanel({ mode = "inline" }: DiffPanelProps) {
                   : "border-border/70 bg-background/70 text-muted-foreground/80 hover:border-border hover:text-foreground/80",
               )}
             >
-              <div className={cn("leading-tight font-medium", mobileViewport.isMobile ? "text-[11px]" : "text-[10px]")}>
+              <div
+                className={cn(
+                  "leading-tight font-medium",
+                  mobileViewport.isMobile ? "text-[11px]" : "text-[10px]",
+                )}
+              >
                 All turns
               </div>
             </div>
@@ -413,7 +425,10 @@ export default function DiffPanel({ mode = "inline" }: DiffPanelProps) {
         </div>
       </div>
       <ToggleGroup
-        className={cn("shrink-0 [-webkit-app-region:no-drag]", mobileViewport.isMobile && "self-end")}
+        className={cn(
+          "shrink-0 [-webkit-app-region:no-drag]",
+          mobileViewport.isMobile && "self-end",
+        )}
         variant="outline"
         size={mobileViewport.isMobile ? "lg" : "xs"}
         value={[diffRenderMode]}
@@ -459,13 +474,13 @@ export default function DiffPanel({ mode = "inline" }: DiffPanelProps) {
       {!activeThread ? (
         <div className="flex flex-1 items-center justify-center px-5 text-center text-xs text-muted-foreground/70">
           <div className={cn(mobileViewport.isMobile && "max-w-xs text-sm")}>
-          Select a thread to inspect turn diffs.
+            Select a thread to inspect turn diffs.
           </div>
         </div>
       ) : !isGitRepo ? (
         <div className="flex flex-1 items-center justify-center px-5 text-center text-xs text-muted-foreground/70">
           <div className={cn(mobileViewport.isMobile && "max-w-xs text-sm")}>
-          Turn diffs are unavailable because this project is not a git repository.
+            Turn diffs are unavailable because this project is not a git repository.
           </div>
         </div>
       ) : orderedTurnDiffSummaries.length === 0 ? (

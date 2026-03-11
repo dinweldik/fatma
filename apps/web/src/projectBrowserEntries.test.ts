@@ -1,9 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  filterProjectBrowserEntries,
-  isHiddenProjectBrowserEntry,
-} from "./projectBrowserEntries";
+import { filterProjectBrowserEntries, isHiddenProjectBrowserEntry } from "./projectBrowserEntries";
 
 describe("isHiddenProjectBrowserEntry", () => {
   it("treats dot-prefixed entries as hidden", () => {

@@ -1,4 +1,8 @@
-import type { OrchestrationEvent, OrchestrationThread, OrchestrationThreadActivity } from "@fatma/contracts";
+import type {
+  OrchestrationEvent,
+  OrchestrationThread,
+  OrchestrationThreadActivity,
+} from "@fatma/contracts";
 import { CheckpointRef, EventId, MessageId, ProjectId, ThreadId, TurnId } from "@fatma/contracts";
 import { describe, expect, it } from "vitest";
 
@@ -14,7 +18,8 @@ const asThreadId = (value: string): ThreadId => ThreadId.makeUnsafe(value);
 const asTurnId = (value: string): TurnId => TurnId.makeUnsafe(value);
 
 function makeActivity(
-  overrides: Partial<OrchestrationThreadActivity> & Pick<OrchestrationThreadActivity, "kind" | "summary" | "createdAt">,
+  overrides: Partial<OrchestrationThreadActivity> &
+    Pick<OrchestrationThreadActivity, "kind" | "summary" | "createdAt">,
 ): OrchestrationThreadActivity {
   return {
     id: asEventId(`activity:${overrides.kind}:${overrides.createdAt}`),

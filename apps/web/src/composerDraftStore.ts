@@ -9,11 +9,7 @@ import {
   type RuntimeMode,
 } from "@fatma/contracts";
 import { normalizeModelSlug } from "@fatma/shared/model";
-import {
-  DEFAULT_INTERACTION_MODE,
-  DEFAULT_RUNTIME_MODE,
-  type ChatImageAttachment,
-} from "./types";
+import { DEFAULT_INTERACTION_MODE, DEFAULT_RUNTIME_MODE, type ChatImageAttachment } from "./types";
 import { create } from "zustand";
 import { type PersistStorage, type StorageValue, persist } from "zustand/middleware";
 import {
@@ -184,8 +180,7 @@ const REASONING_EFFORT_VALUES = new Set<CodexReasoningEffort>(
   REASONING_EFFORT_OPTIONS_BY_PROVIDER.codex,
 );
 const composerDraftAttachmentSyncVersionByThreadId = new Map<ThreadId, number>();
-let legacyPersistedAttachmentsByThreadId: Record<ThreadId, PersistedComposerImageAttachment[]> =
-  {};
+let legacyPersistedAttachmentsByThreadId: Record<ThreadId, PersistedComposerImageAttachment[]> = {};
 
 interface ParsedPersistedComposerDraftStoreState {
   state: PersistedComposerDraftStoreState;
@@ -248,10 +243,7 @@ function nextComposerDraftAttachmentSyncVersion(threadId: ThreadId): number {
   return nextVersion;
 }
 
-function isLatestComposerDraftAttachmentSyncVersion(
-  threadId: ThreadId,
-  version: number,
-): boolean {
+function isLatestComposerDraftAttachmentSyncVersion(threadId: ThreadId, version: number): boolean {
   return composerDraftAttachmentSyncVersionByThreadId.get(threadId) === version;
 }
 
@@ -504,8 +496,7 @@ function hydreatePersistedComposerImageAttachment(
   attachment: PersistedComposerImageAttachment,
 ): File | null {
   const commaIndex = attachment.dataUrl.indexOf(",");
-  const header =
-    commaIndex === -1 ? attachment.dataUrl : attachment.dataUrl.slice(0, commaIndex);
+  const header = commaIndex === -1 ? attachment.dataUrl : attachment.dataUrl.slice(0, commaIndex);
   const payload = commaIndex === -1 ? "" : attachment.dataUrl.slice(commaIndex + 1);
   if (payload.length === 0) {
     return null;
@@ -745,7 +736,8 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
           const nextDraftThread: DraftThreadState = {
             projectId,
             createdAt: options?.createdAt ?? existingThread?.createdAt ?? new Date().toISOString(),
-            runtimeMode: options?.runtimeMode ?? existingThread?.runtimeMode ?? DEFAULT_RUNTIME_MODE,
+            runtimeMode:
+              options?.runtimeMode ?? existingThread?.runtimeMode ?? DEFAULT_RUNTIME_MODE,
             interactionMode:
               options?.interactionMode ??
               existingThread?.interactionMode ??
@@ -814,7 +806,9 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
             return state;
           }
           const nextWorktreePath =
-            options.worktreePath === undefined ? existing.worktreePath : (options.worktreePath ?? null);
+            options.worktreePath === undefined
+              ? existing.worktreePath
+              : (options.worktreePath ?? null);
           const nextDraftThread: DraftThreadState = {
             projectId: nextProjectId,
             createdAt:
@@ -826,8 +820,7 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
             branch: options.branch === undefined ? existing.branch : (options.branch ?? null),
             worktreePath: nextWorktreePath,
             envMode:
-              options.envMode ??
-              (nextWorktreePath ? "worktree" : (existing.envMode ?? "local")),
+              options.envMode ?? (nextWorktreePath ? "worktree" : (existing.envMode ?? "local")),
           };
           const isUnchanged =
             nextDraftThread.projectId === existing.projectId &&
@@ -1254,7 +1247,9 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
           if (!current) {
             return;
           }
-          const attachmentById = new Map(attachments.map((attachment) => [attachment.id, attachment]));
+          const attachmentById = new Map(
+            attachments.map((attachment) => [attachment.id, attachment]),
+          );
           const fallbackMetadata = current.persistedAttachmentMetadata.filter(
             (attachment) =>
               current.images.some((image) => image.id === attachment.id) &&
@@ -1272,7 +1267,10 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
             }
           }
           const attachmentsToPersist = Array.from(attachmentById.values());
-          const persistedIdSet = await persistComposerDraftAttachments(threadId, attachmentsToPersist);
+          const persistedIdSet = await persistComposerDraftAttachments(
+            threadId,
+            attachmentsToPersist,
+          );
           if (!isLatestComposerDraftAttachmentSyncVersion(threadId, syncVersion)) {
             return;
           }

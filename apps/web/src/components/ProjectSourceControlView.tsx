@@ -41,7 +41,12 @@ export default function ProjectSourceControlView({
       </header>
 
       <div className="min-h-0 flex-1 overflow-y-auto p-3 sm:p-5">
-        <div className={cn("mx-auto flex min-h-0 w-full flex-col", !mobileViewport.isMobile && "max-w-5xl")}>
+        <div
+          className={cn(
+            "mx-auto flex min-h-0 w-full flex-col",
+            !mobileViewport.isMobile && "max-w-5xl",
+          )}
+        >
           <GitActionsControl presentation="inline" gitCwd={gitCwd} projectName={project.name} />
         </div>
       </div>

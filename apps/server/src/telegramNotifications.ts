@@ -294,12 +294,13 @@ const makeTelegramNotifications = Effect.gen(function* () {
       return EMPTY_PERSISTED_TELEGRAM_NOTIFICATIONS;
     }
 
-    const raw = yield* fs.readFileString(settingsPath).pipe(
-      Effect.mapError((cause) => toPersistenceError(cause, "read")),
-    );
+    const raw = yield* fs
+      .readFileString(settingsPath)
+      .pipe(Effect.mapError((cause) => toPersistenceError(cause, "read")));
 
     return yield* Effect.try({
-      try: () => Schema.decodeSync(Schema.fromJsonString(PersistedTelegramNotificationsSchema))(raw),
+      try: () =>
+        Schema.decodeSync(Schema.fromJsonString(PersistedTelegramNotificationsSchema))(raw),
       catch: (cause) =>
         new TelegramNotificationsError({
           detail:
@@ -325,15 +326,15 @@ const makeTelegramNotifications = Effect.gen(function* () {
       const serialized = `${JSON.stringify(next, null, 2)}\n`;
       const tempPath = `${settingsPath}.${process.pid}.${Date.now()}.tmp`;
 
-      yield* fs.makeDirectory(path.dirname(settingsPath), { recursive: true }).pipe(
-        Effect.mapError((cause) => toPersistenceError(cause, "create directory")),
-      );
-      yield* fs.writeFileString(tempPath, serialized).pipe(
-        Effect.mapError((cause) => toPersistenceError(cause, "write")),
-      );
-      yield* fs.rename(tempPath, settingsPath).pipe(
-        Effect.mapError((cause) => toPersistenceError(cause, "save")),
-      );
+      yield* fs
+        .makeDirectory(path.dirname(settingsPath), { recursive: true })
+        .pipe(Effect.mapError((cause) => toPersistenceError(cause, "create directory")));
+      yield* fs
+        .writeFileString(tempPath, serialized)
+        .pipe(Effect.mapError((cause) => toPersistenceError(cause, "write")));
+      yield* fs
+        .rename(tempPath, settingsPath)
+        .pipe(Effect.mapError((cause) => toPersistenceError(cause, "save")));
     });
 
   const sendTelegramMessage = (config: PersistedTelegramNotifications, text: string) =>
@@ -358,7 +359,9 @@ const makeTelegramNotifications = Effect.gen(function* () {
         let payload: { ok?: boolean; description?: string } | null = null;
         try {
           payload =
-            rawBody.trim().length > 0 ? (JSON.parse(rawBody) as { ok?: boolean; description?: string }) : null;
+            rawBody.trim().length > 0
+              ? (JSON.parse(rawBody) as { ok?: boolean; description?: string })
+              : null;
         } catch {
           payload = null;
         }
@@ -424,35 +427,33 @@ const makeTelegramNotifications = Effect.gen(function* () {
       return { delivered: true };
     });
 
-  const sendOrchestrationNotification: TelegramNotificationsShape["sendOrchestrationNotification"] = (
-    event,
-    thread,
-  ) =>
-    Effect.gen(function* () {
-      const current = yield* Ref.get(settingsRef);
-      const message = buildTelegramNotificationText(event, thread);
-      if (!message) {
-        return;
-      }
+  const sendOrchestrationNotification: TelegramNotificationsShape["sendOrchestrationNotification"] =
+    (event, thread) =>
+      Effect.gen(function* () {
+        const current = yield* Ref.get(settingsRef);
+        const message = buildTelegramNotificationText(event, thread);
+        if (!message) {
+          return;
+        }
 
-      if (
-        trimStoredValue(current.botToken).length === 0 ||
-        trimStoredValue(current.chatId).length === 0
-      ) {
-        return;
-      }
+        if (
+          trimStoredValue(current.botToken).length === 0 ||
+          trimStoredValue(current.chatId).length === 0
+        ) {
+          return;
+        }
 
-      yield* sendTelegramMessage(current, message).pipe(
-        Effect.catch((error) =>
-          Effect.logWarning("Failed to send Telegram notification.").pipe(
-            Effect.annotateLogs({
-              detail: error.message,
-              threadTitle: thread?.title ?? "",
-            }),
+        yield* sendTelegramMessage(current, message).pipe(
+          Effect.catch((error) =>
+            Effect.logWarning("Failed to send Telegram notification.").pipe(
+              Effect.annotateLogs({
+                detail: error.message,
+                threadTitle: thread?.title ?? "",
+              }),
+            ),
           ),
-        ),
-      );
-    });
+        );
+      });
 
   return {
     getSettingsSummary: getResolvedSettingsSummary,

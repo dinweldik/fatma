@@ -215,7 +215,10 @@ function findHighestPublishedVersion(versions: ReadonlySet<string>): string | nu
 }
 
 function maxVersion(left: string, right: string): string {
-  return compareSemver(requireSemver(left, "Local version"), requireSemver(right, "Published version")) >= 0
+  return compareSemver(
+    requireSemver(left, "Local version"),
+    requireSemver(right, "Published version"),
+  ) >= 0
     ? left
     : right;
 }
@@ -252,7 +255,8 @@ try {
   const versionBase = highestPublishedVersion
     ? maxVersion(packageJson.version, highestPublishedVersion)
     : packageJson.version;
-  const nextVersion = options.version ?? findNextUnpublishedVersion(versionBase, options.bump, publishedVersions);
+  const nextVersion =
+    options.version ?? findNextUnpublishedVersion(versionBase, options.bump, publishedVersions);
 
   if (options.version && publishedVersions.has(options.version)) {
     fail(`Version ${options.version} is already published for ${packageJson.name}.`);
@@ -269,7 +273,9 @@ try {
   if (packageJson.version === nextVersion) {
     console.log(`[publish-npm] Reusing version ${nextVersion}`);
   } else {
-    console.log(`[publish-npm] Bumping ${packageJson.name} from ${packageJson.version} to ${nextVersion}`);
+    console.log(
+      `[publish-npm] Bumping ${packageJson.name} from ${packageJson.version} to ${nextVersion}`,
+    );
   }
 
   writeFileSync(packageJsonPath, nextPackageJsonRaw);

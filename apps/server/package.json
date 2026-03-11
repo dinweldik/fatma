@@ -1,14 +1,14 @@
 {
   "name": "fatma-app",
   "version": "1.0.26",
+  "homepage": "https://github.com/dinweldik/fatma#readme",
+  "bugs": {
+    "url": "https://github.com/dinweldik/fatma/issues"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/dinweldik/fatma.git",
     "directory": "apps/server"
-  },
-  "homepage": "https://github.com/dinweldik/fatma#readme",
-  "bugs": {
-    "url": "https://github.com/dinweldik/fatma/issues"
   },
   "bin": {
     "fatma-app": "./dist/index.mjs"

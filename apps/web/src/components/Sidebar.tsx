@@ -936,12 +936,7 @@ export default function Sidebar({
         });
       }
     },
-    [
-      clearComposerDraftForThread,
-      clearProjectDraftThreadId,
-      getDraftThreadByProjectId,
-      projects,
-    ],
+    [clearComposerDraftForThread, clearProjectDraftThreadId, getDraftThreadByProjectId, projects],
   );
 
   const openProjectShell = useCallback(
@@ -1355,7 +1350,8 @@ export default function Sidebar({
                     <div
                       className={cn(
                         "group/project-header relative",
-                        isMobile && "overflow-hidden rounded-[1.35rem] border border-border/70 bg-card/75 shadow-[0_1px_0_rgba(0,0,0,0.03)]",
+                        isMobile &&
+                          "overflow-hidden rounded-[1.35rem] border border-border/70 bg-card/75 shadow-[0_1px_0_rgba(0,0,0,0.03)]",
                       )}
                     >
                       <CollapsibleTrigger
@@ -1364,7 +1360,8 @@ export default function Sidebar({
                             size="sm"
                             className={cn(
                               "gap-2 px-2 py-1.5 text-left hover:bg-accent group-hover/project-header:bg-accent group-hover/project-header:text-sidebar-accent-foreground",
-                              isMobile && "min-h-13 gap-3 rounded-[1.35rem] px-3 py-3 hover:bg-accent/60",
+                              isMobile &&
+                                "min-h-13 gap-3 rounded-[1.35rem] px-3 py-3 hover:bg-accent/60",
                             )}
                           />
                         }
@@ -1395,8 +1392,8 @@ export default function Sidebar({
                           </span>
                           {isMobile ? (
                             <span className="block truncate text-[11px] text-muted-foreground/65">
-                              {projectThreads.length} thread{projectThreads.length === 1 ? "" : "s"} •{" "}
-                              {projectShells.shells.length} shell
+                              {projectThreads.length} thread{projectThreads.length === 1 ? "" : "s"}{" "}
+                              • {projectShells.shells.length} shell
                               {projectShells.shells.length === 1 ? "" : "s"}
                             </span>
                           ) : null}
@@ -1513,7 +1510,9 @@ export default function Sidebar({
                                           threadStatus.pulse ? "animate-pulse" : ""
                                         }`}
                                       />
-                                      <span className={cn(isMobile ? "inline" : "hidden md:inline")}>
+                                      <span
+                                        className={cn(isMobile ? "inline" : "hidden md:inline")}
+                                      >
                                         {threadStatus.label}
                                       </span>
                                     </span>
@@ -1567,9 +1566,7 @@ export default function Sidebar({
                                   )}
                                 >
                                   <span
-                                    className={`${
-                                      isMobile ? "text-[11px]" : "text-[10px]"
-                                    } ${
+                                    className={`${isMobile ? "text-[11px]" : "text-[10px]"} ${
                                       isActive ? "text-foreground/65" : "text-muted-foreground/40"
                                     }`}
                                   >
@@ -1588,7 +1585,9 @@ export default function Sidebar({
                               size="sm"
                               className={cn(
                                 "w-full translate-x-0 justify-start px-2 text-left text-muted-foreground/60 hover:bg-accent hover:text-muted-foreground/80",
-                                isMobile ? "min-h-10 rounded-2xl px-3 text-[11px]" : "h-6 text-[10px]",
+                                isMobile
+                                  ? "min-h-10 rounded-2xl px-3 text-[11px]"
+                                  : "h-6 text-[10px]",
                               )}
                               onClick={() => {
                                 expandThreadListForProject(project.id);
@@ -1605,7 +1604,9 @@ export default function Sidebar({
                               size="sm"
                               className={cn(
                                 "w-full translate-x-0 justify-start px-2 text-left text-muted-foreground/60 hover:bg-accent hover:text-muted-foreground/80",
-                                isMobile ? "min-h-10 rounded-2xl px-3 text-[11px]" : "h-6 text-[10px]",
+                                isMobile
+                                  ? "min-h-10 rounded-2xl px-3 text-[11px]"
+                                  : "h-6 text-[10px]",
                               )}
                               onClick={() => {
                                 collapseThreadListForProject(project.id);
@@ -1654,9 +1655,16 @@ export default function Sidebar({
                                 }}
                               >
                                 <div className="flex min-w-0 flex-1 items-center gap-1.5 text-left">
-                                  <TerminalIcon className={cn("shrink-0", isMobile ? "size-4" : "size-3.5")} />
+                                  <TerminalIcon
+                                    className={cn("shrink-0", isMobile ? "size-4" : "size-3.5")}
+                                  />
                                   <div className="min-w-0 flex-1">
-                                    <span className={cn("block truncate", isMobile ? "text-sm" : "text-xs")}>
+                                    <span
+                                      className={cn(
+                                        "block truncate",
+                                        isMobile ? "text-sm" : "text-xs",
+                                      )}
+                                    >
                                       {shell.title}
                                     </span>
                                     <span
@@ -1681,9 +1689,7 @@ export default function Sidebar({
                                     </span>
                                   )}
                                   <span
-                                    className={`${
-                                      isMobile ? "text-[11px]" : "text-[10px]"
-                                    } ${
+                                    className={`${isMobile ? "text-[11px]" : "text-[10px]"} ${
                                       isActive ? "text-foreground/65" : "text-muted-foreground/40"
                                     }`}
                                   >
@@ -1701,7 +1707,9 @@ export default function Sidebar({
                             size="sm"
                             className={cn(
                               "w-full translate-x-0 justify-start px-2 text-left text-muted-foreground/70 hover:bg-accent hover:text-foreground",
-                              isMobile ? "min-h-10 rounded-2xl px-3 text-[11px]" : "h-6 text-[10px]",
+                              isMobile
+                                ? "min-h-10 rounded-2xl px-3 text-[11px]"
+                                : "h-6 text-[10px]",
                             )}
                             onClick={() => {
                               void createShellFromSidebar(project.id);
@@ -1727,7 +1735,8 @@ export default function Sidebar({
             <div
               className={cn(
                 "px-2 pt-4 text-center text-xs text-muted-foreground/60",
-                isMobile && "rounded-[1.4rem] border border-dashed border-border/70 bg-card/55 px-4 py-6 text-sm",
+                isMobile &&
+                  "rounded-[1.4rem] border border-dashed border-border/70 bg-card/55 px-4 py-6 text-sm",
               )}
             >
               No projects yet.

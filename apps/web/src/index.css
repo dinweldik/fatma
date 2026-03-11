@@ -183,7 +183,9 @@ body {
     overscroll-behavior: contain;
   }
 
-  .project-shell-terminal[data-mobile="true"][data-selection-mode="true"] .xterm .xterm-accessibility {
+  .project-shell-terminal[data-mobile="true"][data-selection-mode="true"]
+    .xterm
+    .xterm-accessibility {
     pointer-events: auto;
   }
 

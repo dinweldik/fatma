@@ -7,8 +7,7 @@ export interface PersistedComposerImageAttachmentMetadata {
   sizeBytes: number;
 }
 
-export interface PersistedComposerImageAttachment
-  extends PersistedComposerImageAttachmentMetadata {
+export interface PersistedComposerImageAttachment extends PersistedComposerImageAttachmentMetadata {
   dataUrl: string;
 }
 
@@ -77,7 +76,7 @@ async function openComposerDraftAttachmentDatabase(): Promise<IDBDatabase | null
       request.addEventListener("upgradeneeded", () => {
         const database = request.result;
         const store = database.objectStoreNames.contains(COMPOSER_DRAFT_ATTACHMENT_STORE_NAME)
-          ? request.transaction?.objectStore(COMPOSER_DRAFT_ATTACHMENT_STORE_NAME) ?? null
+          ? (request.transaction?.objectStore(COMPOSER_DRAFT_ATTACHMENT_STORE_NAME) ?? null)
           : database.createObjectStore(COMPOSER_DRAFT_ATTACHMENT_STORE_NAME, {
               keyPath: "key",
             });
@@ -117,9 +116,7 @@ async function readComposerDraftAttachmentRecords(
     const transaction = database.transaction(COMPOSER_DRAFT_ATTACHMENT_STORE_NAME, "readonly");
     const store = transaction.objectStore(COMPOSER_DRAFT_ATTACHMENT_STORE_NAME);
     const index = store.index(COMPOSER_DRAFT_ATTACHMENT_THREAD_INDEX);
-    const records = await requestToPromise(
-      index.getAll(threadId),
-    );
+    const records = await requestToPromise(index.getAll(threadId));
     await transactionToPromise(transaction);
     return records as ComposerDraftAttachmentRecord[];
   } catch {
@@ -265,7 +262,9 @@ export async function persistComposerDraftAttachments(
     return new Set();
   }
   const existingAttachments = await readComposerDraftAttachmentRecords(threadId);
-  const existingAttachmentById = new Map(existingAttachments.map((attachment) => [attachment.id, attachment]));
+  const existingAttachmentById = new Map(
+    existingAttachments.map((attachment) => [attachment.id, attachment]),
+  );
   const nextAttachmentIdSet = new Set(attachments.map((attachment) => attachment.id));
 
   await Promise.all(
@@ -309,16 +308,12 @@ export async function removePersistedComposerDraftAttachment(
   await deleteComposerDraftAttachment(threadId, attachmentId);
 }
 
-export async function clearPersistedComposerDraftAttachments(
-  threadId: ThreadId,
-): Promise<void> {
+export async function clearPersistedComposerDraftAttachments(threadId: ThreadId): Promise<void> {
   if (threadId.length === 0) {
     return;
   }
   const existingAttachments = await readComposerDraftAttachmentRecords(threadId);
   await Promise.all(
-    existingAttachments.map((attachment) =>
-      deleteComposerDraftAttachment(threadId, attachment.id),
-    ),
+    existingAttachments.map((attachment) => deleteComposerDraftAttachment(threadId, attachment.id)),
   );
 }

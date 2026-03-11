@@ -400,9 +400,7 @@ export function runDevRunnerWithInput(input: DevRunnerCliInput) {
 
     const envOverrides = {
       noBrowser: readOptionalBooleanEnv("FATMA_NO_BROWSER"),
-      autoBootstrapProjectFromCwd: readOptionalBooleanEnv(
-        "FATMA_AUTO_BOOTSTRAP_PROJECT_FROM_CWD",
-      ),
+      autoBootstrapProjectFromCwd: readOptionalBooleanEnv("FATMA_AUTO_BOOTSTRAP_PROJECT_FROM_CWD"),
       logWebSocketEvents: readOptionalBooleanEnv("FATMA_LOG_WS_EVENTS"),
     };
 
@@ -482,9 +480,7 @@ export function runDevRunnerWithInput(input: DevRunnerCliInput) {
   );
 }
 
-export function normalizeImplicitHostFlag(
-  args: ReadonlyArray<string>,
-): ReadonlyArray<string> {
+export function normalizeImplicitHostFlag(args: ReadonlyArray<string>): ReadonlyArray<string> {
   const normalized = [...args];
 
   for (let index = 0; index < normalized.length; index += 1) {
@@ -502,7 +498,10 @@ export function normalizeImplicitHostFlag(
   return normalized;
 }
 
-export function resolveRunnerHost(mode: DevMode, explicitHost: string | undefined): string | undefined {
+export function resolveRunnerHost(
+  mode: DevMode,
+  explicitHost: string | undefined,
+): string | undefined {
   if (explicitHost !== undefined) {
     return explicitHost;
   }

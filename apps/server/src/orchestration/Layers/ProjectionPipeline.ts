@@ -1,8 +1,4 @@
-import {
-  ApprovalRequestId,
-  type ChatAttachment,
-  type OrchestrationEvent,
-} from "@fatma/contracts";
+import { ApprovalRequestId, type ChatAttachment, type OrchestrationEvent } from "@fatma/contracts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { Effect, FileSystem, Layer, Option, Path, Stream } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
@@ -78,9 +74,8 @@ interface AttachmentSideEffects {
 }
 
 const materializeAttachmentsForProjection = Effect.fn(
-  (input: {
-    readonly attachments: ReadonlyArray<ChatAttachment>;
-  }) => Effect.succeed(input.attachments.length === 0 ? [] : input.attachments),
+  (input: { readonly attachments: ReadonlyArray<ChatAttachment> }) =>
+    Effect.succeed(input.attachments.length === 0 ? [] : input.attachments),
 );
 
 function extractActivityRequestId(payload: unknown): ApprovalRequestId | null {
@@ -336,7 +331,6 @@ const runAttachmentSideEffects = Effect.fn(function* (sideEffects: AttachmentSid
     },
     { concurrency: 1 },
   );
-
 });
 
 const makeOrchestrationProjectionPipeline = Effect.gen(function* () {

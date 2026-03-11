@@ -2347,7 +2347,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
           attachments: turnAttachments,
         },
         model: selectedModel || undefined,
-        serviceTier: selectedServiceTier,
+        ...(selectedServiceTier ? { serviceTier: selectedServiceTier } : {}),
         ...(selectedModelOptionsForDispatch
           ? { modelOptions: selectedModelOptionsForDispatch }
           : {}),
@@ -3509,11 +3509,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
                     type="button"
                     size={mobileViewport.isMobile ? "sm" : "icon-sm"}
                     variant="outline"
-                    className={cn(
-                      mobileViewport.isMobile
-                        ? "rounded-full px-3"
-                        : "rounded-full",
-                    )}
+                    className={cn(mobileViewport.isMobile ? "rounded-full px-3" : "rounded-full")}
                     onClick={openComposerImagePicker}
                     disabled={isConnecting || isSendBusy}
                     aria-label="Attach images"
@@ -3635,103 +3631,101 @@ export default function ChatView({ threadId }: ChatViewProps) {
                           </Menu>
                         </div>
                       )
+                    ) : mobileViewport.isMobile ? (
+                      <Button
+                        type="submit"
+                        size="sm"
+                        className="h-10 rounded-full px-4"
+                        disabled={
+                          isSendBusy ||
+                          isConnecting ||
+                          (!prompt.trim() && composerImages.length === 0)
+                        }
+                        aria-label={
+                          isConnecting
+                            ? "Connecting"
+                            : isPreparingWorktree
+                              ? "Preparing worktree"
+                              : isSendBusy
+                                ? "Sending"
+                                : "Send message"
+                        }
+                      >
+                        {isConnecting || isSendBusy ? "Sending..." : "Send"}
+                        {!isConnecting && !isSendBusy ? (
+                          <svg
+                            width="14"
+                            height="14"
+                            viewBox="0 0 14 14"
+                            fill="none"
+                            aria-hidden="true"
+                          >
+                            <path
+                              d="M7 11.5V2.5M7 2.5L3 6.5M7 2.5L11 6.5"
+                              stroke="currentColor"
+                              strokeWidth="1.8"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            />
+                          </svg>
+                        ) : null}
+                      </Button>
                     ) : (
-                      mobileViewport.isMobile ? (
-                        <Button
-                          type="submit"
-                          size="sm"
-                          className="h-10 rounded-full px-4"
-                          disabled={
-                            isSendBusy ||
-                            isConnecting ||
-                            (!prompt.trim() && composerImages.length === 0)
-                          }
-                          aria-label={
-                            isConnecting
-                              ? "Connecting"
-                              : isPreparingWorktree
-                                ? "Preparing worktree"
-                                : isSendBusy
-                                  ? "Sending"
-                                  : "Send message"
-                          }
-                        >
-                          {isConnecting || isSendBusy ? "Sending..." : "Send"}
-                          {!isConnecting && !isSendBusy ? (
-                            <svg
-                              width="14"
-                              height="14"
-                              viewBox="0 0 14 14"
-                              fill="none"
-                              aria-hidden="true"
-                            >
-                              <path
-                                d="M7 11.5V2.5M7 2.5L3 6.5M7 2.5L11 6.5"
-                                stroke="currentColor"
-                                strokeWidth="1.8"
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                              />
-                            </svg>
-                          ) : null}
-                        </Button>
-                      ) : (
-                        <button
-                          type="submit"
-                          className="flex h-8.5 w-8.5 items-center justify-center rounded-full bg-primary/90 text-primary-foreground transition-all duration-150 hover:bg-primary hover:scale-105 disabled:opacity-30 disabled:hover:scale-100 sm:h-8 sm:w-8"
-                          disabled={
-                            isSendBusy ||
-                            isConnecting ||
-                            (!prompt.trim() && composerImages.length === 0)
-                          }
-                          aria-label={
-                            isConnecting
-                              ? "Connecting"
-                              : isPreparingWorktree
-                                ? "Preparing worktree"
-                                : isSendBusy
-                                  ? "Sending"
-                                  : "Send message"
-                          }
-                        >
-                          {isConnecting || isSendBusy ? (
-                            <svg
-                              width="14"
-                              height="14"
-                              viewBox="0 0 14 14"
-                              fill="none"
-                              className="animate-spin"
-                              aria-hidden="true"
-                            >
-                              <circle
-                                cx="7"
-                                cy="7"
-                                r="5.5"
-                                stroke="currentColor"
-                                strokeWidth="1.5"
-                                strokeLinecap="round"
-                                strokeDasharray="20 12"
-                              />
-                            </svg>
-                          ) : (
-                            <svg
-                              width="14"
-                              height="14"
-                              viewBox="0 0 14 14"
-                              fill="none"
-                              aria-hidden="true"
-                            >
-                              <path
-                                d="M7 11.5V2.5M7 2.5L3 6.5M7 2.5L11 6.5"
-                                stroke="currentColor"
-                                strokeWidth="1.8"
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                              />
-                            </svg>
-                          )}
-                        </button>
-                      )
+                      <button
+                        type="submit"
+                        className="flex h-8.5 w-8.5 items-center justify-center rounded-full bg-primary/90 text-primary-foreground transition-all duration-150 hover:bg-primary hover:scale-105 disabled:opacity-30 disabled:hover:scale-100 sm:h-8 sm:w-8"
+                        disabled={
+                          isSendBusy ||
+                          isConnecting ||
+                          (!prompt.trim() && composerImages.length === 0)
+                        }
+                        aria-label={
+                          isConnecting
+                            ? "Connecting"
+                            : isPreparingWorktree
+                              ? "Preparing worktree"
+                              : isSendBusy
+                                ? "Sending"
+                                : "Send message"
+                        }
+                      >
+                        {isConnecting || isSendBusy ? (
+                          <svg
+                            width="14"
+                            height="14"
+                            viewBox="0 0 14 14"
+                            fill="none"
+                            className="animate-spin"
+                            aria-hidden="true"
+                          >
+                            <circle
+                              cx="7"
+                              cy="7"
+                              r="5.5"
+                              stroke="currentColor"
+                              strokeWidth="1.5"
+                              strokeLinecap="round"
+                              strokeDasharray="20 12"
+                            />
+                          </svg>
+                        ) : (
+                          <svg
+                            width="14"
+                            height="14"
+                            viewBox="0 0 14 14"
+                            fill="none"
+                            aria-hidden="true"
+                          >
+                            <path
+                              d="M7 11.5V2.5M7 2.5L3 6.5M7 2.5L11 6.5"
+                              stroke="currentColor"
+                              strokeWidth="1.8"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            />
+                          </svg>
+                        )}
+                      </button>
                     )
                   ) : null}
                 </div>
@@ -3775,7 +3769,8 @@ export default function ChatView({ threadId }: ChatViewProps) {
               variant="ghost"
               className={cn(
                 "absolute left-2 top-1/2 z-20 -translate-y-1/2 text-white/90 hover:bg-white/10 hover:text-white sm:left-6",
-                mobileViewport.isMobile && "left-3 h-11 w-11 rounded-full border border-white/15 bg-black/30 backdrop-blur-sm",
+                mobileViewport.isMobile &&
+                  "left-3 h-11 w-11 rounded-full border border-white/15 bg-black/30 backdrop-blur-sm",
               )}
               aria-label="Previous image"
               onClick={() => {
@@ -3837,7 +3832,8 @@ export default function ChatView({ threadId }: ChatViewProps) {
               variant="ghost"
               className={cn(
                 "absolute right-2 top-1/2 z-20 -translate-y-1/2 text-white/90 hover:bg-white/10 hover:text-white sm:right-6",
-                mobileViewport.isMobile && "right-3 h-11 w-11 rounded-full border border-white/15 bg-black/30 backdrop-blur-sm",
+                mobileViewport.isMobile &&
+                  "right-3 h-11 w-11 rounded-full border border-white/15 bg-black/30 backdrop-blur-sm",
               )}
               aria-label="Next image"
               onClick={() => {
@@ -5027,7 +5023,9 @@ const MessagesTimeline = memo(function MessagesTimeline({
                     {row.message.text}
                   </pre>
                 )}
-                <div className={cn("mt-1.5 flex items-center justify-end gap-2", isMobile && "mt-2")}>
+                <div
+                  className={cn("mt-1.5 flex items-center justify-end gap-2", isMobile && "mt-2")}
+                >
                   <div className="flex items-center gap-1.5 opacity-0 transition-opacity duration-200 focus-within:opacity-100 group-hover:opacity-100">
                     {row.message.text && <MessageCopyButton text={row.message.text} />}
                     {canRevertAgentWork && (
@@ -5109,7 +5107,12 @@ const MessagesTimeline = memo(function MessagesTimeline({
                             </>
                           )}
                         </p>
-                        <div className={cn("flex items-center gap-1.5", isMobile && "ml-auto flex-wrap")}>
+                        <div
+                          className={cn(
+                            "flex items-center gap-1.5",
+                            isMobile && "ml-auto flex-wrap",
+                          )}
+                        >
                           <Button
                             type="button"
                             size="xs"
