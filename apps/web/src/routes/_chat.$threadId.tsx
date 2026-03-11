@@ -22,6 +22,8 @@ const DIFF_INLINE_SIDEBAR_WIDTH_STORAGE_KEY = "chat_diff_sidebar_width";
 const DIFF_INLINE_DEFAULT_WIDTH = "clamp(28rem,48vw,44rem)";
 const DIFF_INLINE_SIDEBAR_MIN_WIDTH = 26 * 16;
 const COMPOSER_COMPACT_MIN_LEFT_CONTROLS_WIDTH_PX = 208;
+const CHAT_THREAD_INSET_CLASS_NAME =
+  "app-mobile-viewport min-h-0 overflow-hidden overscroll-y-none bg-background pt-[var(--safe-area-inset-top)] pb-[calc(var(--safe-area-inset-bottom)+var(--app-mobile-bottom-nav-height,0px))] text-foreground";
 
 const DiffPanelSheet = (props: {
   children: ReactNode;
@@ -71,12 +73,13 @@ const DiffLoadingFallback = (props: { inline: boolean }) => {
   );
 };
 
-const DiffPanelInlineSidebar = (props: {
+const DiffPanelInlineLayout = (props: {
+  children: ReactNode;
   diffOpen: boolean;
   onCloseDiff: () => void;
   onOpenDiff: () => void;
 }) => {
-  const { diffOpen, onCloseDiff, onOpenDiff } = props;
+  const { children, diffOpen, onCloseDiff, onOpenDiff } = props;
   const onOpenChange = useCallback(
     (open: boolean) => {
       if (open) {
@@ -138,9 +141,10 @@ const DiffPanelInlineSidebar = (props: {
       defaultOpen={false}
       open={diffOpen}
       onOpenChange={onOpenChange}
-      className="w-auto min-h-0 flex-none bg-transparent"
+      className="min-h-0 flex-1 bg-transparent"
       style={{ "--sidebar-width": DIFF_INLINE_DEFAULT_WIDTH } as React.CSSProperties}
     >
+      {children}
       <Sidebar
         side="right"
         collapsible="offcanvas"
@@ -211,18 +215,17 @@ function ChatThreadRouteView() {
 
   if (!shouldUseDiffSheet) {
     return (
-      <>
-        <SidebarInset className="app-mobile-viewport min-h-0 overflow-hidden overscroll-y-none bg-background pt-[var(--safe-area-inset-top)] pb-[calc(var(--safe-area-inset-bottom)+var(--app-mobile-bottom-nav-height,0px))] text-foreground">
+      <DiffPanelInlineLayout diffOpen={diffOpen} onCloseDiff={closeDiff} onOpenDiff={openDiff}>
+        <SidebarInset className={CHAT_THREAD_INSET_CLASS_NAME}>
           <ChatView key={threadId} threadId={threadId} />
         </SidebarInset>
-        <DiffPanelInlineSidebar diffOpen={diffOpen} onCloseDiff={closeDiff} onOpenDiff={openDiff} />
-      </>
+      </DiffPanelInlineLayout>
     );
   }
 
   return (
     <>
-      <SidebarInset className="app-mobile-viewport min-h-0 overflow-hidden overscroll-y-none bg-background pt-[var(--safe-area-inset-top)] pb-[calc(var(--safe-area-inset-bottom)+var(--app-mobile-bottom-nav-height,0px))] text-foreground">
+      <SidebarInset className={CHAT_THREAD_INSET_CLASS_NAME}>
         <ChatView key={threadId} threadId={threadId} />
       </SidebarInset>
       <DiffPanelSheet diffOpen={diffOpen} onCloseDiff={closeDiff}>

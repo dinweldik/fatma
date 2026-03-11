@@ -65,6 +65,13 @@ const DEFAULT_VIEWPORT: ViewportSpec = {
   textTolerancePx: 44,
   attachmentTolerancePx: 56,
 };
+const WIDE_DESKTOP_VIEWPORT: ViewportSpec = {
+  name: "wide-desktop",
+  width: 1_800,
+  height: 1_200,
+  textTolerancePx: 44,
+  attachmentTolerancePx: 56,
+};
 const TEXT_VIEWPORT_MATRIX = [
   DEFAULT_VIEWPORT,
   { name: "tablet", width: 720, height: 1_024, textTolerancePx: 44, attachmentTolerancePx: 56 },
@@ -796,6 +803,48 @@ describe("ChatView timeline estimator parity (full app)", () => {
     const ratio = estimatedDeltaPx / measuredDeltaPx;
     expect(ratio).toBeGreaterThan(0.65);
     expect(ratio).toBeLessThan(1.35);
+  });
+
+  it("keeps the selected thread visible at wide desktop widths", async () => {
+    const mounted = await mountChatView({
+      viewport: WIDE_DESKTOP_VIEWPORT,
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: "msg-user-target-wide-layout" as MessageId,
+        targetText: "wide layout target",
+      }),
+    });
+
+    try {
+      const threadInset = await waitForElement(
+        () => document.querySelector<HTMLElement>('[data-slot="sidebar-inset"]'),
+        "Unable to find the selected thread container.",
+      );
+      const threadHeading = await waitForElement(
+        () => document.querySelector<HTMLElement>("main h2"),
+        "Unable to find the selected thread heading.",
+      );
+      const composerEditor = await waitForComposerEditor();
+
+      await vi.waitFor(
+        () => {
+          const insetRect = threadInset.getBoundingClientRect();
+          const headingRect = threadHeading.getBoundingClientRect();
+          const composerRect = composerEditor.getBoundingClientRect();
+
+          expect(insetRect.height).toBeGreaterThan(0);
+          expect(headingRect.top).toBeGreaterThanOrEqual(0);
+          expect(headingRect.bottom).toBeLessThanOrEqual(window.innerHeight);
+          expect(composerRect.top).toBeGreaterThan(headingRect.bottom);
+          expect(composerRect.bottom).toBeLessThanOrEqual(window.innerHeight);
+        },
+        {
+          timeout: 8_000,
+          interval: 16,
+        },
+      );
+    } finally {
+      await mounted.cleanup();
+    }
   });
 
   it.each(ATTACHMENT_VIEWPORT_MATRIX)(
