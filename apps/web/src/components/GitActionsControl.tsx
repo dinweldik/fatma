@@ -47,6 +47,7 @@ interface GitActionsControlProps {
   projectName?: string;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
+  presentation?: "overlay" | "inline";
   triggerAriaLabel?: string;
   triggerClassName?: string;
   triggerContent?: ReactNode;
@@ -642,6 +643,7 @@ export default function GitActionsControl({
   projectName,
   open: openProp,
   onOpenChange,
+  presentation = "overlay",
   triggerAriaLabel,
   triggerClassName,
   triggerContent,
@@ -655,6 +657,7 @@ export default function GitActionsControl({
   const [commitMessage, setCommitMessage] = useState("");
   const [selectedTarget, setSelectedTarget] = useState<SelectedFileTarget | null>(null);
   const open = openProp ?? uncontrolledOpen;
+  const panelOpen = presentation === "inline" ? true : open;
   const setOpen = (nextOpen: boolean) => {
     onOpenChange?.(nextOpen);
     if (openProp === undefined) {
@@ -680,7 +683,7 @@ export default function GitActionsControl({
       cwd: gitCwd,
       path: selectedTarget?.path ?? null,
       enabled:
-        open &&
+        panelOpen &&
         gitCwd !== null &&
         branchListQuery.data?.isRepo === true &&
         selectedTarget !== null,
@@ -695,10 +698,10 @@ export default function GitActionsControl({
     EMPTY_GIT_FILES;
 
   useEffect(() => {
-    if (!open) {
+    if (presentation !== "inline" && !open) {
       setSelectedTarget(null);
     }
-  }, [open]);
+  }, [open, presentation]);
 
   useEffect(() => {
     if (!selectedTarget) {
@@ -853,6 +856,10 @@ export default function GitActionsControl({
       {...(projectName ? { projectName } : {})}
     />
   );
+
+  if (presentation === "inline") {
+    return panel;
+  }
 
   if (isMobile) {
     return (

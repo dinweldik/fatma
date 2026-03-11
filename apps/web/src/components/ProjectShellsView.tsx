@@ -657,6 +657,41 @@ function MobileAccessoryButton(props: {
   );
 }
 
+function DesktopShellListButton(props: {
+  cwd: string;
+  isActive: boolean;
+  isRunning: boolean;
+  onSelect: () => void;
+  title: string;
+}) {
+  return (
+    <button
+      type="button"
+      className={cn(
+        "flex w-full items-start gap-2 rounded-xl border px-3 py-2.5 text-left transition-colors duration-150",
+        props.isActive
+          ? "border-border bg-accent/70 text-foreground shadow-[0_8px_28px_rgba(0,0,0,0.12)]"
+          : "border-transparent bg-transparent text-muted-foreground hover:border-border/60 hover:bg-accent/40 hover:text-foreground",
+      )}
+      onClick={props.onSelect}
+    >
+      <SquareTerminalIcon className="mt-0.5 size-4 shrink-0" />
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2">
+          <span className="truncate text-sm font-medium">{props.title}</span>
+          <span
+            className={cn(
+              "inline-flex size-1.5 shrink-0 rounded-full",
+              props.isRunning ? "bg-emerald-500" : "bg-muted-foreground/30",
+            )}
+          />
+        </div>
+        <p className="mt-1 truncate text-[11px] text-muted-foreground/75">{props.cwd}</p>
+      </div>
+    </button>
+  );
+}
+
 export default function ProjectShellsView({
   project,
   shellId = null,
@@ -753,8 +788,13 @@ export default function ProjectShellsView({
     async (nextShellId: string) => {
       setActiveShell(project.id, nextShellId);
       await openProjectShellPage();
+      if (!mobileViewport.isMobile) {
+        window.requestAnimationFrame(() => {
+          focusTerminal();
+        });
+      }
     },
-    [openProjectShellPage, project.id, setActiveShell],
+    [focusTerminal, mobileViewport.isMobile, openProjectShellPage, project.id, setActiveShell],
   );
 
   const createShellAndOpen = useCallback(async () => {
@@ -926,6 +966,126 @@ export default function ProjectShellsView({
       ]
     : [];
 
+  if (!mobileViewport.isMobile) {
+    return (
+      <div className="flex h-full min-h-0 overflow-hidden bg-background text-foreground">
+        <section className="flex min-h-0 flex-1 flex-col px-4 py-4 lg:px-5 lg:py-5">
+          <div className="relative flex min-h-0 flex-1 overflow-hidden rounded-[1.4rem] border border-border/70 bg-card/55 shadow-[0_20px_64px_rgba(0,0,0,0.16)]">
+            {activeShell ? (
+              <ShellTerminalViewport
+                ref={terminalHandleRef}
+                autoFocus
+                cwd={activeShell.cwd}
+                fontSize={terminalFontSize}
+                isMobile={false}
+                projectId={project.id}
+                runtimeEnv={activeShell.env}
+                selectionMode={false}
+                shellId={activeShell.id}
+                transformUserInput={transformUserInput}
+                onSelectionModeChange={() => undefined}
+              />
+            ) : (
+              <div className="flex flex-1 flex-col items-center justify-center px-6 text-center">
+                <SquareTerminalIcon className="size-10 text-muted-foreground/35" />
+                <h2 className="mt-4 text-lg font-semibold">No shells yet</h2>
+                <p className="mt-2 max-w-sm text-sm text-muted-foreground/70">
+                  Add a shell for {project.name} when you need one.
+                </p>
+                <Button
+                  className="mt-5 rounded-xl"
+                  onClick={() => {
+                    void createShellAndOpen();
+                  }}
+                >
+                  <PlusIcon className="size-4" />
+                  Add shell
+                </Button>
+              </div>
+            )}
+          </div>
+        </section>
+
+        <aside className="flex w-[18rem] shrink-0 flex-col border-border/70 border-l bg-muted/18 backdrop-blur-xl">
+          <div className="flex items-start justify-between gap-3 border-border/70 border-b px-3 py-3">
+            <div className="min-w-0">
+              <p className="text-[10px] font-semibold tracking-[0.18em] text-muted-foreground/60 uppercase">
+                Project Shells
+              </p>
+              <h1 className="mt-1 truncate text-sm font-semibold">{project.name}</h1>
+              <p className="truncate text-xs text-muted-foreground/70">
+                {activeShell?.cwd ?? project.cwd}
+              </p>
+            </div>
+            <div className="flex items-center gap-1">
+              <Button
+                aria-label={newShellShortcutLabel ? `Add shell (${newShellShortcutLabel})` : "Add shell"}
+                className="rounded-lg"
+                size="icon-xs"
+                title={newShellShortcutLabel ? `Add shell (${newShellShortcutLabel})` : "Add shell"}
+                variant="outline"
+                onClick={() => {
+                  void createShellAndOpen();
+                }}
+              >
+                <PlusIcon className="size-3.5" />
+              </Button>
+              <Button
+                aria-label={
+                  closeShellShortcutLabel
+                    ? `Delete active shell (${closeShellShortcutLabel})`
+                    : "Delete active shell"
+                }
+                className="rounded-lg"
+                disabled={!activeShell}
+                size="icon-xs"
+                title={
+                  closeShellShortcutLabel
+                    ? `Delete active shell (${closeShellShortcutLabel})`
+                    : "Delete active shell"
+                }
+                variant="ghost"
+                onClick={() => {
+                  void closeActiveShell();
+                }}
+              >
+                <Trash2Icon className="size-3.5" />
+              </Button>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between border-border/70 border-b px-3 py-2 text-[11px] text-muted-foreground/70">
+            <span>
+              {collection.shells.length} shell{collection.shells.length === 1 ? "" : "s"}
+            </span>
+            <span>{collection.runningShellIds.length} running</span>
+          </div>
+
+          {collection.shells.length === 0 ? (
+            <div className="px-3 py-4 text-sm text-muted-foreground/65">
+              No shells for this project yet.
+            </div>
+          ) : (
+            <div className="min-h-0 flex-1 space-y-1.5 overflow-y-auto p-2">
+              {collection.shells.map((shell) => (
+                <DesktopShellListButton
+                  key={shell.id}
+                  cwd={shell.cwd}
+                  isActive={shell.id === activeShellId}
+                  isRunning={collection.runningShellIds.includes(shell.id)}
+                  title={shell.title}
+                  onSelect={() => {
+                    void openShell(shell.id);
+                  }}
+                />
+              ))}
+            </div>
+          )}
+        </aside>
+      </div>
+    );
+  }
+
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.06),transparent_28%),linear-gradient(180deg,rgba(255,255,255,0.04),rgba(255,255,255,0))] text-foreground">
       <header className="shrink-0 border-border/70 border-b bg-background/78 px-3 py-3 backdrop-blur-xl sm:px-5 sm:py-4">
@@ -946,18 +1106,6 @@ export default function ProjectShellsView({
           </div>
 
           <div className="flex items-center gap-2">
-            {!mobileViewport.isMobile && activeShell ? (
-              <Button
-                className="rounded-xl"
-                size="xs"
-                variant="destructive-outline"
-                onClick={() => {
-                  void interruptActiveShell();
-                }}
-              >
-                Stop
-              </Button>
-            ) : null}
             <Button
               aria-label={newShellShortcutLabel ? `Add shell (${newShellShortcutLabel})` : "Add shell"}
               className="rounded-xl"
@@ -994,37 +1142,28 @@ export default function ProjectShellsView({
           </div>
         </div>
 
-        {mobileViewport.isMobile ? (
-          <div className="turn-chip-strip mt-3 -mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
-            {collection.shells.map((shell) => (
-              <ShellTabButton
-                key={shell.id}
-                isActive={shell.id === activeShellId}
-                isRunning={collection.runningShellIds.includes(shell.id)}
-                mobile
-                title={shell.title}
-                onSelect={() => {
-                  void openShell(shell.id);
-                }}
-              />
-            ))}
-          </div>
-        ) : null}
+        <div className="turn-chip-strip mt-3 -mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
+          {collection.shells.map((shell) => (
+            <ShellTabButton
+              key={shell.id}
+              isActive={shell.id === activeShellId}
+              isRunning={collection.runningShellIds.includes(shell.id)}
+              mobile
+              title={shell.title}
+              onSelect={() => {
+                void openShell(shell.id);
+              }}
+            />
+          ))}
+        </div>
       </header>
 
       <div className="flex min-h-0 flex-1">
         <section className="flex min-h-0 flex-1 flex-col sm:px-5 sm:py-5">
-          <div
-            className={cn(
-              "relative flex min-h-0 flex-1 overflow-hidden border border-white/8 bg-card/70 backdrop-blur-sm",
-              mobileViewport.isMobile
-                ? "rounded-none border-r-0 border-l-0 shadow-none"
-                : "rounded-[1.65rem] shadow-[0_32px_80px_rgba(0,0,0,0.24)]",
-            )}
-          >
+          <div className="relative flex min-h-0 flex-1 overflow-hidden border border-white/8 bg-card/70 backdrop-blur-sm rounded-none border-r-0 border-l-0 shadow-none">
             {activeShell ? (
               <>
-                {mobileViewport.isMobile && mobileSelectionMode ? (
+                {mobileSelectionMode ? (
                   <div className="absolute top-3 right-3 z-20">
                     <Button
                       className="rounded-full"
@@ -1041,10 +1180,10 @@ export default function ProjectShellsView({
                 ) : null}
                 <ShellTerminalViewport
                   ref={terminalHandleRef}
-                  autoFocus={!mobileViewport.isMobile}
+                  autoFocus={false}
                   cwd={activeShell.cwd}
                   fontSize={terminalFontSize}
-                  isMobile={mobileViewport.isMobile}
+                  isMobile
                   projectId={project.id}
                   runtimeEnv={activeShell.env}
                   selectionMode={mobileSelectionMode}
@@ -1074,44 +1213,10 @@ export default function ProjectShellsView({
             )}
           </div>
         </section>
-
-        {!mobileViewport.isMobile ? (
-          <aside className="hidden w-[17rem] shrink-0 border-border/70 border-l bg-black/10 px-3 py-4 backdrop-blur-xl sm:flex sm:flex-col">
-            <div className="mb-3 flex items-center justify-between px-1">
-              <p className="text-[11px] font-semibold tracking-[0.18em] text-muted-foreground/60 uppercase">
-                Shell Tabs
-              </p>
-              <span className="text-xs text-muted-foreground/55">{collection.shells.length}</span>
-            </div>
-
-            {collection.shells.length === 0 ? (
-              <div className="rounded-2xl border border-dashed border-white/10 bg-white/4 px-4 py-5 text-sm text-muted-foreground/65">
-                No shells for this project yet.
-              </div>
-            ) : (
-              <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto">
-                {collection.shells.map((shell) => (
-                  <ShellTabButton
-                    key={shell.id}
-                    isActive={shell.id === activeShellId}
-                    isRunning={collection.runningShellIds.includes(shell.id)}
-                    mobile={false}
-                    title={shell.title}
-                    onSelect={() => {
-                      void openShell(shell.id);
-                    }}
-                  />
-                ))}
-              </div>
-            )}
-          </aside>
-        ) : null}
       </div>
 
-      {mobileViewport.isMobile && activeShell ? (
-        <div
-          className="shrink-0 border-border/70 border-t bg-background/92 backdrop-blur-xl"
-        >
+      {activeShell ? (
+        <div className="shrink-0 border-border/70 border-t bg-background/92 backdrop-blur-xl">
           <div className="grid grid-cols-5 gap-2 px-3 py-1">
             {mobileAccessoryButtons.map((button) => (
               <MobileAccessoryButton

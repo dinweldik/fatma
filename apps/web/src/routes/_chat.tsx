@@ -12,7 +12,7 @@ import { useMobileViewport } from "../mobileViewport";
 function ChatRouteLayout() {
   const navigate = useNavigate();
   const mobileViewport = useMobileViewport();
-  const showMobileBottomNav = mobileViewport.isMobile && !mobileViewport.isKeyboardOpen && !isElectron;
+  const showMobileBottomNav = mobileViewport.isMobile && !isElectron;
 
   useEffect(() => {
     const onMenuAction = window.desktopBridge?.onMenuAction;

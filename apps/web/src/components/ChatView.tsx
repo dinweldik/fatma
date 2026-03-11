@@ -84,6 +84,7 @@ import {
   type PendingUserInputDraftAnswer,
 } from "../pendingUserInput";
 import { useStore } from "../store";
+import { useSelectedChatStore } from "../selectedChatStore";
 import {
   buildPlanImplementationThreadTitle,
   buildPlanImplementationPrompt,
@@ -125,6 +126,7 @@ import {
   CircleAlertIcon,
   FileIcon,
   FolderIcon,
+  GitBranchIcon,
   EllipsisIcon,
   FolderClosedIcon,
   LockIcon,
@@ -551,6 +553,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const syncServerReadModel = useStore((store) => store.syncServerReadModel);
   const setStoreThreadError = useStore((store) => store.setError);
   const setStoreThreadBranch = useStore((store) => store.setThreadBranch);
+  const setSelectedChat = useSelectedChatStore((store) => store.setSelectedChat);
   const { settings } = useAppSettings();
   const navigate = useNavigate();
   const mobileViewport = useMobileViewport();
@@ -701,6 +704,17 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const activeLatestTurn = activeThread?.latestTurn ?? null;
   const latestTurnSettled = isLatestTurnSettled(activeLatestTurn, activeThread?.session ?? null);
   const activeProject = projects.find((p) => p.id === activeThread?.projectId);
+
+  useEffect(() => {
+    if (!activeThread?.id) {
+      return;
+    }
+
+    setSelectedChat({
+      projectId: activeThread.projectId,
+      threadId: activeThread.id,
+    });
+  }, [activeThread?.id, activeThread?.projectId, setSelectedChat]);
 
   useEffect(() => {
     if (!activeThread?.id) return;
@@ -866,6 +880,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
     () => deriveActivePlanState(threadActivities, activeLatestTurn?.turnId ?? undefined),
     [activeLatestTurn?.turnId, threadActivities],
   );
+  const visibleActivePlan = latestTurnSettled ? null : activePlan;
   const showPlanFollowUpPrompt =
     pendingUserInputs.length === 0 &&
     interactionMode === "plan" &&
@@ -1106,10 +1121,23 @@ export default function ChatView({ threadId }: ChatViewProps) {
   ]);
   const gitCwd = activeThread?.worktreePath ?? activeProject?.cwd ?? null;
   const canOpenSourceControl = gitCwd !== null;
+  const openProjectSourceControlView = useCallback(async () => {
+    if (!activeProject) return;
+    await navigate({
+      to: "/source-control/$projectId",
+      params: {
+        projectId: activeProject.id,
+      },
+    });
+  }, [activeProject, navigate]);
   const mobileEdgeSwipeHandlers = useMobileEdgeSwipe({
     enabled: mobileViewport.isMobile,
-    rightEnabled: !sourceControlOpen && canOpenSourceControl,
+    rightEnabled: canOpenSourceControl,
     onSwipeFromRightEdge: () => {
+      if (mobileViewport.isMobile) {
+        void openProjectSourceControlView();
+        return;
+      }
       setSourceControlOpen(true);
     },
   });
@@ -3118,6 +3146,9 @@ export default function ChatView({ threadId }: ChatViewProps) {
           activeProjectName={activeProject?.name}
           isGitRepo={isGitRepo}
           gitCwd={gitCwd}
+          onOpenSourceControl={() => {
+            void openProjectSourceControlView();
+          }}
           sourceControlOpen={sourceControlOpen}
           onSourceControlOpenChange={setSourceControlOpen}
           onOpenShells={() => {
@@ -3129,7 +3160,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
       {/* Error banner */}
       <ProviderHealthBanner status={activeProviderStatus} />
       <ThreadErrorBanner error={activeThread.error} />
-      <PlanModePanel activePlan={activePlan} />
+      <PlanModePanel activePlan={visibleActivePlan} />
 
       {/* Messages */}
       <div
@@ -3463,6 +3494,9 @@ export default function ChatView({ threadId }: ChatViewProps) {
                     <ChatProjectActions
                       activeProjectName={activeProject?.name}
                       gitCwd={gitCwd}
+                      onOpenSourceControl={() => {
+                        void openProjectSourceControlView();
+                      }}
                       sourceControlOpen={sourceControlOpen}
                       onSourceControlOpenChange={setSourceControlOpen}
                       onOpenShells={() => {
@@ -3822,6 +3856,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
 interface ChatProjectActionsProps {
   activeProjectName: string | undefined;
   gitCwd: string | null;
+  onOpenSourceControl: () => void;
   onOpenShells: () => void;
   onSourceControlOpenChange: (open: boolean) => void;
   sourceControlOpen: boolean;
@@ -3832,6 +3867,7 @@ interface ChatProjectActionsProps {
 const ChatProjectActions = memo(function ChatProjectActions({
   activeProjectName,
   gitCwd,
+  onOpenSourceControl,
   onOpenShells,
   onSourceControlOpenChange,
   sourceControlOpen,
@@ -3855,20 +3891,25 @@ const ChatProjectActions = memo(function ChatProjectActions({
         <TerminalIcon className="size-3.5" />
         {!compact ? <span className="sr-only @sm/header-actions:not-sr-only">Shells</span> : null}
       </Button>
-      <GitActionsControl
-        gitCwd={gitCwd}
-        open={sourceControlOpen}
-        onOpenChange={onSourceControlOpenChange}
-        projectName={activeProjectName}
-        {...(compact
-          ? {
-              triggerAriaLabel: "Open source control",
-              triggerClassName: "h-8 w-8 rounded-full",
-              triggerContent: <FolderIcon className="size-4" />,
-              triggerSize: "icon-sm" as const,
-            }
-          : {})}
-      />
+      {compact ? (
+        <Button
+          size="icon-sm"
+          variant="outline"
+          className="h-8 w-8 rounded-full"
+          onClick={onOpenSourceControl}
+          aria-label="Open source control"
+          title="Source Control"
+        >
+          <GitBranchIcon className="size-4" />
+        </Button>
+      ) : (
+        <GitActionsControl
+          gitCwd={gitCwd}
+          open={sourceControlOpen}
+          onOpenChange={onSourceControlOpenChange}
+          projectName={activeProjectName}
+        />
+      )}
     </div>
   );
 });
@@ -3878,6 +3919,7 @@ interface ChatHeaderProps {
   activeProjectName: string | undefined;
   isGitRepo: boolean;
   gitCwd: string | null;
+  onOpenSourceControl: () => void;
   onOpenShells: () => void;
   onSourceControlOpenChange: (open: boolean) => void;
   sourceControlOpen: boolean;
@@ -3888,6 +3930,7 @@ const ChatHeader = memo(function ChatHeader({
   activeProjectName,
   isGitRepo,
   gitCwd,
+  onOpenSourceControl,
   onOpenShells,
   onSourceControlOpenChange,
   sourceControlOpen,
@@ -3915,6 +3958,7 @@ const ChatHeader = memo(function ChatHeader({
       <ChatProjectActions
         activeProjectName={activeProjectName}
         gitCwd={gitCwd}
+        onOpenSourceControl={onOpenSourceControl}
         sourceControlOpen={sourceControlOpen}
         onSourceControlOpenChange={onSourceControlOpenChange}
         onOpenShells={onOpenShells}
@@ -4056,8 +4100,11 @@ const PlanModePanel = memo(function PlanModePanel({ activePlan }: PlanModePanelP
   if (!activePlan) return null;
 
   return (
-    <div className="pt-3 mx-auto max-w-3xl">
-      <div className="rounded-xl border border-border/70 bg-muted/30 p-4">
+    <div className="min-w-0 px-2.5 pt-3 sm:px-5">
+      <div
+        className="mx-auto min-w-0 max-w-3xl rounded-xl border border-border/70 bg-muted/30 p-4"
+        data-plan-panel="true"
+      >
         <div className="flex items-center gap-2">
           <Badge variant="secondary">Plan</Badge>
           <span className="text-xs text-muted-foreground">
@@ -4065,30 +4112,35 @@ const PlanModePanel = memo(function PlanModePanel({ activePlan }: PlanModePanelP
           </span>
         </div>
         {activePlan.explanation ? (
-          <p className="mt-2 text-sm text-muted-foreground">{activePlan.explanation}</p>
+          <p className="mt-2 text-sm text-muted-foreground [overflow-wrap:anywhere]">
+            {activePlan.explanation}
+          </p>
         ) : null}
         <div className="mt-3 space-y-2">
           {activePlan.steps.map((step) => (
             <div
               key={`${step.status}:${step.step}`}
-              className="flex items-start gap-3 rounded-lg border border-border/60 bg-background/80 px-3 py-2"
+              className="min-w-0 rounded-lg border border-border/60 bg-background/80 px-3 py-2"
+              data-plan-step="true"
             >
-              <Badge
-                variant={
-                  step.status === "completed"
-                    ? "default"
-                    : step.status === "inProgress"
-                      ? "secondary"
-                      : "outline"
-                }
-              >
-                {step.status === "inProgress"
-                  ? "In progress"
-                  : step.status === "completed"
-                    ? "Done"
-                    : "Pending"}
-              </Badge>
-              <div className="min-w-0 flex-1 text-sm">{step.step}</div>
+              <div className="flex min-w-0 flex-wrap items-start gap-2.5 sm:flex-nowrap sm:gap-3">
+                <Badge
+                  variant={
+                    step.status === "completed"
+                      ? "default"
+                      : step.status === "inProgress"
+                        ? "secondary"
+                        : "outline"
+                  }
+                >
+                  {step.status === "inProgress"
+                    ? "In progress"
+                    : step.status === "completed"
+                      ? "Done"
+                      : "Pending"}
+                </Badge>
+                <div className="min-w-0 flex-1 text-sm [overflow-wrap:anywhere]">{step.step}</div>
+              </div>
             </div>
           ))}
         </div>

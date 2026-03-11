@@ -7,6 +7,7 @@ describe("resolveMobileViewportMetrics", () => {
     expect(
       resolveMobileViewportMetrics({
         innerHeight: 844,
+        layoutViewportHeight: 844,
       }),
     ).toEqual({
       isKeyboardOpen: false,
@@ -18,7 +19,8 @@ describe("resolveMobileViewportMetrics", () => {
   it("treats the reduced visual viewport height as a keyboard inset", () => {
     expect(
       resolveMobileViewportMetrics({
-        innerHeight: 844,
+        innerHeight: 544,
+        layoutViewportHeight: 844,
         visualViewportHeight: 544,
         visualViewportOffsetTop: 0,
       }),
@@ -32,7 +34,8 @@ describe("resolveMobileViewportMetrics", () => {
   it("subtracts visual viewport offset from the keyboard inset calculation", () => {
     expect(
       resolveMobileViewportMetrics({
-        innerHeight: 844,
+        innerHeight: 600,
+        layoutViewportHeight: 844,
         visualViewportHeight: 600,
         visualViewportOffsetTop: 44,
       }),
@@ -40,6 +43,21 @@ describe("resolveMobileViewportMetrics", () => {
       isKeyboardOpen: true,
       keyboardInset: 200,
       viewportHeight: 600,
+    });
+  });
+
+  it("falls back to innerHeight when a stable layout viewport height is unavailable", () => {
+    expect(
+      resolveMobileViewportMetrics({
+        innerHeight: 844,
+        layoutViewportHeight: null,
+        visualViewportHeight: 544,
+        visualViewportOffsetTop: 0,
+      }),
+    ).toEqual({
+      isKeyboardOpen: true,
+      keyboardInset: 300,
+      viewportHeight: 544,
     });
   });
 });

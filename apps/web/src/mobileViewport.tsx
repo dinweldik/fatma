@@ -29,10 +29,16 @@ const MobileViewportContext = createContext<MobileViewportMetrics>(
 
 export function resolveMobileViewportMetrics(input: {
   readonly innerHeight: number;
+  readonly layoutViewportHeight?: number | null | undefined;
   readonly visualViewportHeight?: number | null | undefined;
   readonly visualViewportOffsetTop?: number | null | undefined;
 }): Omit<MobileViewportMetrics, "isMobile"> {
   const innerHeight = Number.isFinite(input.innerHeight) ? Math.max(0, input.innerHeight) : 0;
+  const layoutViewportHeight =
+    typeof input.layoutViewportHeight === "number" &&
+    Number.isFinite(input.layoutViewportHeight)
+      ? Math.max(0, input.layoutViewportHeight)
+      : innerHeight;
   const visualViewportHeight =
     typeof input.visualViewportHeight === "number" && Number.isFinite(input.visualViewportHeight)
       ? Math.max(0, input.visualViewportHeight)
@@ -42,11 +48,12 @@ export function resolveMobileViewportMetrics(input: {
     Number.isFinite(input.visualViewportOffsetTop)
       ? Math.max(0, input.visualViewportOffsetTop)
       : 0;
-  const viewportHeight = visualViewportHeight > 0 ? visualViewportHeight : innerHeight || null;
+  const viewportHeight =
+    visualViewportHeight > 0 ? visualViewportHeight : (innerHeight || layoutViewportHeight || null);
   const keyboardInset =
     viewportHeight === null
       ? 0
-      : Math.max(0, innerHeight - (viewportHeight + visualViewportOffsetTop));
+      : Math.max(0, layoutViewportHeight - (viewportHeight + visualViewportOffsetTop));
 
   return {
     isKeyboardOpen: keyboardInset > 0,
@@ -65,6 +72,7 @@ export function MobileViewportProvider(props: { readonly children: ReactNode }) 
 
     return resolveMobileViewportMetrics({
       innerHeight: window.innerHeight,
+      layoutViewportHeight: document.documentElement.clientHeight,
       visualViewportHeight: window.visualViewport?.height,
       visualViewportOffsetTop: window.visualViewport?.offsetTop,
     });
@@ -88,6 +96,7 @@ export function MobileViewportProvider(props: { readonly children: ReactNode }) 
       frameId = null;
       const nextMetrics = resolveMobileViewportMetrics({
         innerHeight: window.innerHeight,
+        layoutViewportHeight: document.documentElement.clientHeight,
         visualViewportHeight: window.visualViewport?.height,
         visualViewportOffsetTop: window.visualViewport?.offsetTop,
       });

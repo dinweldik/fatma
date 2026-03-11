@@ -2,12 +2,14 @@
 import "../index.css";
 
 import {
+  EventId,
   ORCHESTRATION_WS_METHODS,
   type MessageId,
   type OrchestrationReadModel,
   type ProjectId,
   type ServerConfig,
   type ThreadId,
+  TurnId,
   type WsWelcomePayload,
   WS_CHANNELS,
   WS_METHODS,
@@ -238,6 +240,71 @@ function createSnapshotForTargetUser(options: {
   };
 }
 
+function createSnapshotWithActivePlan(options: {
+  turnState: "running" | "completed";
+  explanation?: string;
+  steps?: Array<{
+    step: string;
+    status: "pending" | "inProgress" | "completed";
+  }>;
+}): OrchestrationReadModel {
+  const snapshot = createSnapshotForTargetUser({
+    targetMessageId: `msg-user-plan-${options.turnState}` as MessageId,
+    targetText: "plan fixture",
+  });
+  const turnId = TurnId.makeUnsafe(`turn-plan-${options.turnState}`);
+  const steps = options.steps ?? [
+    {
+      step: "Patch the layout so long plan tasks stay inside the mobile viewport without horizontal overflow.",
+      status: options.turnState === "running" ? "inProgress" : "completed",
+    },
+  ];
+  const thread = snapshot.threads[0]!;
+
+  return {
+    ...snapshot,
+    threads: [
+      {
+        ...thread,
+        latestTurn: {
+          turnId,
+          state: options.turnState,
+          requestedAt: isoAt(1),
+          startedAt: isoAt(2),
+          completedAt: options.turnState === "completed" ? isoAt(30) : null,
+          assistantMessageId: null,
+        },
+        activities: [
+          {
+            id: EventId.makeUnsafe(`activity-plan-${options.turnState}`),
+            createdAt: isoAt(10),
+            kind: "turn.plan.updated",
+            summary: "Plan updated",
+            tone: "info",
+            payload: {
+              explanation:
+                options.explanation ??
+                "Keep in-flight task lists readable on phones and remove stale completed panels.",
+              plan: steps,
+            },
+            turnId,
+            sequence: 1,
+          },
+        ],
+        session: thread.session
+          ? {
+              ...thread.session,
+              status: options.turnState === "running" ? "running" : "ready",
+              activeTurnId: options.turnState === "running" ? turnId : null,
+              updatedAt: options.turnState === "running" ? isoAt(12) : isoAt(31),
+            }
+          : null,
+      },
+    ],
+    updatedAt: options.turnState === "running" ? isoAt(12) : isoAt(31),
+  };
+}
+
 function buildFixture(snapshot: OrchestrationReadModel): TestFixture {
   return {
     snapshot,
@@ -412,6 +479,13 @@ async function waitForInteractionModeButton(expectedLabel: "Chat" | "Plan"): Pro
         (button) => button.textContent?.trim() === expectedLabel,
       ) as HTMLButtonElement | null,
     `Unable to find ${expectedLabel} interaction mode button.`,
+  );
+}
+
+async function waitForPlanPanel(): Promise<HTMLElement> {
+  return waitForElement(
+    () => document.querySelector<HTMLElement>('[data-plan-panel="true"]'),
+    "Unable to find active plan panel.",
   );
 }
 
@@ -869,6 +943,74 @@ describe("ChatView timeline estimator parity (full app)", () => {
         },
         { timeout: 8_000, interval: 16 },
       );
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("hides completed task-list panels after the latest turn settles", async () => {
+    const mounted = await mountChatView({
+      viewport: TEXT_VIEWPORT_MATRIX[2],
+      snapshot: createSnapshotWithActivePlan({
+        turnState: "completed",
+        steps: [
+          {
+            step: "This completed plan should not stay pinned above the timeline once the turn is done.",
+            status: "completed",
+          },
+        ],
+      }),
+    });
+
+    try {
+      await vi.waitFor(
+        () => {
+          expect(document.querySelector('[data-plan-panel="true"]')).toBeNull();
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("keeps active task-list panels within the viewport on narrow mobile screens", async () => {
+    const mounted = await mountChatView({
+      viewport: TEXT_VIEWPORT_MATRIX[3],
+      snapshot: createSnapshotWithActivePlan({
+        turnState: "running",
+        steps: [
+          {
+            step: "Patch the Phase Run play view container so the main grid and sections stay constrained to the viewport width while phase_run_phase_run_phase_run_phase_run still wraps safely.",
+            status: "completed",
+          },
+          {
+            step: "Adjust narrow-screen timer, draw, and action button grids so they stack or wrap cleanly on phones without shoving the plan card past the viewport edge.",
+            status: "inProgress",
+          },
+          {
+            step: "Verify the mobile page in a live browser and run targeted checks before closing the task list.",
+            status: "pending",
+          },
+        ],
+      }),
+    });
+
+    try {
+      const planPanel = await waitForPlanPanel();
+      await waitForLayout();
+
+      const panelRect = planPanel.getBoundingClientRect();
+      expect(panelRect.left).toBeGreaterThanOrEqual(0);
+      expect(panelRect.right).toBeLessThanOrEqual(window.innerWidth);
+
+      for (const stepRow of Array.from(
+        document.querySelectorAll<HTMLElement>('[data-plan-step="true"]'),
+      )) {
+        const stepRect = stepRow.getBoundingClientRect();
+        expect(stepRect.left).toBeGreaterThanOrEqual(panelRect.left);
+        expect(stepRect.right).toBeLessThanOrEqual(panelRect.right);
+      }
     } finally {
       await mounted.cleanup();
     }

@@ -14,6 +14,7 @@ import { Route as ChatIndexRouteImport } from './routes/_chat.index'
 import { Route as ChatSettingsRouteImport } from './routes/_chat.settings'
 import { Route as ChatProjectsRouteImport } from './routes/_chat.projects'
 import { Route as ChatThreadIdRouteImport } from './routes/_chat.$threadId'
+import { Route as ChatSourceControlProjectIdRouteImport } from './routes/_chat.source-control.$projectId'
 import { Route as ChatShellsProjectIdRouteImport } from './routes/_chat.shells.$projectId'
 import { Route as ChatShellsProjectIdIndexRouteImport } from './routes/_chat.shells.$projectId.index'
 import { Route as ChatShellsProjectIdShellIdRouteImport } from './routes/_chat.shells.$projectId.$shellId'
@@ -42,6 +43,12 @@ const ChatThreadIdRoute = ChatThreadIdRouteImport.update({
   path: '/$threadId',
   getParentRoute: () => ChatRoute,
 } as any)
+const ChatSourceControlProjectIdRoute =
+  ChatSourceControlProjectIdRouteImport.update({
+    id: '/source-control/$projectId',
+    path: '/source-control/$projectId',
+    getParentRoute: () => ChatRoute,
+  } as any)
 const ChatShellsProjectIdRoute = ChatShellsProjectIdRouteImport.update({
   id: '/shells/$projectId',
   path: '/shells/$projectId',
@@ -66,6 +73,7 @@ export interface FileRoutesByFullPath {
   '/projects': typeof ChatProjectsRoute
   '/settings': typeof ChatSettingsRoute
   '/shells/$projectId': typeof ChatShellsProjectIdRouteWithChildren
+  '/source-control/$projectId': typeof ChatSourceControlProjectIdRoute
   '/shells/$projectId/$shellId': typeof ChatShellsProjectIdShellIdRoute
   '/shells/$projectId/': typeof ChatShellsProjectIdIndexRoute
 }
@@ -74,6 +82,7 @@ export interface FileRoutesByTo {
   '/projects': typeof ChatProjectsRoute
   '/settings': typeof ChatSettingsRoute
   '/': typeof ChatIndexRoute
+  '/source-control/$projectId': typeof ChatSourceControlProjectIdRoute
   '/shells/$projectId/$shellId': typeof ChatShellsProjectIdShellIdRoute
   '/shells/$projectId': typeof ChatShellsProjectIdIndexRoute
 }
@@ -85,6 +94,7 @@ export interface FileRoutesById {
   '/_chat/settings': typeof ChatSettingsRoute
   '/_chat/': typeof ChatIndexRoute
   '/_chat/shells/$projectId': typeof ChatShellsProjectIdRouteWithChildren
+  '/_chat/source-control/$projectId': typeof ChatSourceControlProjectIdRoute
   '/_chat/shells/$projectId/$shellId': typeof ChatShellsProjectIdShellIdRoute
   '/_chat/shells/$projectId/': typeof ChatShellsProjectIdIndexRoute
 }
@@ -96,6 +106,7 @@ export interface FileRouteTypes {
     | '/projects'
     | '/settings'
     | '/shells/$projectId'
+    | '/source-control/$projectId'
     | '/shells/$projectId/$shellId'
     | '/shells/$projectId/'
   fileRoutesByTo: FileRoutesByTo
@@ -104,6 +115,7 @@ export interface FileRouteTypes {
     | '/projects'
     | '/settings'
     | '/'
+    | '/source-control/$projectId'
     | '/shells/$projectId/$shellId'
     | '/shells/$projectId'
   id:
@@ -114,6 +126,7 @@ export interface FileRouteTypes {
     | '/_chat/settings'
     | '/_chat/'
     | '/_chat/shells/$projectId'
+    | '/_chat/source-control/$projectId'
     | '/_chat/shells/$projectId/$shellId'
     | '/_chat/shells/$projectId/'
   fileRoutesById: FileRoutesById
@@ -159,6 +172,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ChatThreadIdRouteImport
       parentRoute: typeof ChatRoute
     }
+    '/_chat/source-control/$projectId': {
+      id: '/_chat/source-control/$projectId'
+      path: '/source-control/$projectId'
+      fullPath: '/source-control/$projectId'
+      preLoaderRoute: typeof ChatSourceControlProjectIdRouteImport
+      parentRoute: typeof ChatRoute
+    }
     '/_chat/shells/$projectId': {
       id: '/_chat/shells/$projectId'
       path: '/shells/$projectId'
@@ -202,6 +222,7 @@ interface ChatRouteChildren {
   ChatSettingsRoute: typeof ChatSettingsRoute
   ChatIndexRoute: typeof ChatIndexRoute
   ChatShellsProjectIdRoute: typeof ChatShellsProjectIdRouteWithChildren
+  ChatSourceControlProjectIdRoute: typeof ChatSourceControlProjectIdRoute
 }
 
 const ChatRouteChildren: ChatRouteChildren = {
@@ -210,6 +231,7 @@ const ChatRouteChildren: ChatRouteChildren = {
   ChatSettingsRoute: ChatSettingsRoute,
   ChatIndexRoute: ChatIndexRoute,
   ChatShellsProjectIdRoute: ChatShellsProjectIdRouteWithChildren,
+  ChatSourceControlProjectIdRoute: ChatSourceControlProjectIdRoute,
 }
 
 const ChatRouteWithChildren = ChatRoute._addFileChildren(ChatRouteChildren)
