@@ -257,6 +257,8 @@ const publishCmd = Command.make(
           const pkg = {
             name: serverPackageJson.name,
             repository: serverPackageJson.repository,
+            homepage: serverPackageJson.homepage,
+            bugs: serverPackageJson.bugs,
             bin: serverPackageJson.bin,
             type: serverPackageJson.type,
             version,
