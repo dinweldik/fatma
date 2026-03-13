@@ -942,6 +942,67 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
+  it("keeps the draft thread visible while the first submit waits for snapshot hydration", async () => {
+    useComposerDraftStore.setState({
+      draftThreadsByThreadId: {
+        [THREAD_ID]: {
+          projectId: PROJECT_ID,
+          createdAt: NOW_ISO,
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          branch: null,
+          worktreePath: null,
+          envMode: "local",
+        },
+      },
+      projectDraftThreadIdByProjectId: {
+        [PROJECT_ID]: THREAD_ID,
+      },
+    });
+
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createDraftOnlySnapshot(),
+    });
+
+    try {
+      useComposerDraftStore.getState().setPrompt(THREAD_ID, "keep draft thread visible");
+      await waitForLayout();
+
+      const sendButton = await waitForElement(
+        () =>
+          document.querySelector<HTMLButtonElement>('button[aria-label="Send message"]'),
+        "Unable to find composer send button.",
+      );
+      sendButton.click();
+
+      await vi.waitFor(
+        () => {
+          const dispatchRequests = wsRequests.filter(
+            (request) => request._tag === ORCHESTRATION_WS_METHODS.dispatchCommand,
+          );
+          expect(dispatchRequests).toHaveLength(2);
+          expect(dispatchRequests[0]).toMatchObject({
+            command: { type: "thread.create", threadId: THREAD_ID, projectId: PROJECT_ID },
+          });
+          expect(dispatchRequests[1]).toMatchObject({
+            command: { type: "thread.turn.start", threadId: THREAD_ID },
+          });
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+
+      await waitForLayout();
+
+      expect(document.querySelector('[data-chat-composer-form="true"]')).not.toBeNull();
+      expect(document.body.textContent).not.toContain(
+        "Select a thread or create a new one to get started.",
+      );
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
   it("toggles plan mode with Shift+Tab only while the composer is focused", async () => {
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,

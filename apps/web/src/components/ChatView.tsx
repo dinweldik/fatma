@@ -716,6 +716,18 @@ export default function ChatView({ threadId }: ChatViewProps) {
   }, [activeThread?.id, activeThread?.projectId, setSelectedChat]);
 
   useEffect(() => {
+    // Keep the local draft thread alive until the matching server thread has
+    // actually hydrated into the client store. Clearing it earlier can leave
+    // the thread route with no backing state and briefly bounce desktop users
+    // to the blank index view while the first turn is starting.
+    if (!serverThread || !draftThread) {
+      return;
+    }
+
+    clearDraftThread(threadId);
+  }, [clearDraftThread, draftThread, serverThread, threadId]);
+
+  useEffect(() => {
     if (!activeThread?.id) return;
     if (!latestTurnSettled) return;
     if (!activeLatestTurn?.completedAt) return;
@@ -2357,9 +2369,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
         createdAt: messageCreatedAt,
       });
       turnStartSucceeded = true;
-      if (isFirstMessage) {
-        clearDraftThread(threadIdForSend);
-      }
     })().catch(async (err: unknown) => {
       if (createdServerThreadForLocalDraft && !turnStartSucceeded) {
         await api.orchestration
