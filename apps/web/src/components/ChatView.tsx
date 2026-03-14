@@ -187,12 +187,17 @@ import {
 } from "../appSettings";
 import {
   type ComposerImageAttachment,
+  type ComposerImageAttachmentPayload,
   type DraftThreadEnvMode,
   type DraftThreadState,
-  type PersistedComposerImageAttachment,
   useComposerDraftStore,
   useComposerThreadDraft,
 } from "../composerDraftStore";
+import {
+  payloadToComposerImageAttachment,
+  payloadToUploadAttachment,
+  snapshotImageFile,
+} from "../composerImageSnapshots";
 import { clamp } from "effect/Number";
 import { ComposerPromptEditor, type ComposerPromptEditorHandle } from "./ComposerPromptEditor";
 import { estimateTimelineMessageHeight } from "./timelineHeight";
@@ -381,41 +386,29 @@ type ComposerCommandItem =
 
 type SendPhase = "idle" | "preparing-worktree" | "sending-turn";
 
-function readFileAsDataUrl(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.addEventListener("load", () => {
-      if (typeof reader.result === "string") {
-        resolve(reader.result);
-        return;
-      }
-      reject(new Error("Could not read image data."));
-    });
-    reader.addEventListener("error", () => {
-      reject(reader.error ?? new Error("Failed to read image."));
-    });
-    reader.readAsDataURL(file);
-  });
-}
-
 function buildTemporaryWorktreeBranchName(): string {
   // Keep the 8-hex suffix shape for backend temporary-branch detection.
   const token = randomUuid().slice(0, 8).toLowerCase();
   return `${WORKTREE_BRANCH_PREFIX}/${token}`;
 }
 
-function cloneComposerImageForRetry(image: ComposerImageAttachment): ComposerImageAttachment {
-  if (typeof URL === "undefined" || !image.previewUrl.startsWith("blob:")) {
-    return image;
-  }
-  try {
-    return {
-      ...image,
-      previewUrl: URL.createObjectURL(image.file),
-    };
-  } catch {
-    return image;
-  }
+function createRetryComposerImageSnapshots(
+  attachments: ComposerImageAttachment[],
+  payloads: ComposerImageAttachmentPayload[],
+) {
+  const payloadById = new Map(payloads.map((payload) => [payload.id, payload]));
+  return attachments.flatMap((attachment) => {
+    const payload = payloadById.get(attachment.id);
+    if (!payload) {
+      return [];
+    }
+    return [
+      {
+        attachment: payloadToComposerImageAttachment(payload),
+        payload,
+      },
+    ];
+  });
 }
 
 const VscodeEntryIcon = memo(function VscodeEntryIcon(props: {
@@ -562,6 +555,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const composerDraft = useComposerThreadDraft(threadId);
   const prompt = composerDraft.prompt;
   const composerImages = composerDraft.images;
+  const composerAttachmentPayloads = composerDraft.attachmentPayloads;
   const nonPersistedComposerImageIds = composerDraft.nonPersistedImageIds;
   const setComposerDraftPrompt = useComposerDraftStore((store) => store.setPrompt);
   const setComposerDraftProvider = useComposerDraftStore((store) => store.setProvider);
@@ -573,15 +567,8 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const setComposerDraftEffort = useComposerDraftStore((store) => store.setEffort);
   const setComposerDraftCodexFastMode = useComposerDraftStore((store) => store.setCodexFastMode);
   const setActiveProjectShell = useProjectShellStore((store) => store.setActiveShell);
-  const addComposerDraftImage = useComposerDraftStore((store) => store.addImage);
-  const addComposerDraftImages = useComposerDraftStore((store) => store.addImages);
+  const addComposerDraftImageSnapshots = useComposerDraftStore((store) => store.addImageSnapshots);
   const removeComposerDraftImage = useComposerDraftStore((store) => store.removeImage);
-  const clearComposerDraftPersistedAttachments = useComposerDraftStore(
-    (store) => store.clearPersistedAttachments,
-  );
-  const syncComposerDraftPersistedAttachments = useComposerDraftStore(
-    (store) => store.syncPersistedAttachments,
-  );
   const clearComposerDraftContent = useComposerDraftStore((store) => store.clearComposerContent);
   const clearDraftThread = useComposerDraftStore((store) => store.clearDraftThread);
   const setDraftThreadContext = useComposerDraftStore((store) => store.setDraftThreadContext);
@@ -621,6 +608,9 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const [composerTrigger, setComposerTrigger] = useState<ComposerTrigger | null>(() =>
     detectComposerTrigger(prompt, prompt.length),
   );
+  const [pendingComposerStageCountByThreadId, setPendingComposerStageCountByThreadId] = useState<
+    Record<ThreadId, number>
+  >({});
   const messagesScrollRef = useRef<HTMLDivElement>(null);
   const [messagesScrollElement, setMessagesScrollElement] = useState<HTMLDivElement | null>(null);
   const shouldAutoScrollRef = useRef(true);
@@ -639,6 +629,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const composerFormRef = useRef<HTMLFormElement>(null);
   const composerFormHeightRef = useRef(0);
   const composerImagesRef = useRef<ComposerImageAttachment[]>([]);
+  const composerAttachmentPayloadsRef = useRef<ComposerImageAttachmentPayload[]>([]);
   const composerSelectLockRef = useRef(false);
   const composerMenuOpenRef = useRef(false);
   const composerMenuItemsRef = useRef<ComposerCommandItem[]>([]);
@@ -647,6 +638,10 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const attachmentPreviewHandoffTimeoutByMessageIdRef = useRef<Record<string, number>>({});
   const sendInFlightRef = useRef(false);
   const dragDepthRef = useRef(0);
+  const pendingComposerStageCountByThreadIdRef = useRef<Record<ThreadId, number>>({});
+  const pendingComposerStagePromisesByThreadIdRef = useRef<Map<ThreadId, Set<Promise<void>>>>(
+    new Map(),
+  );
   const setMessagesScrollContainerRef = useCallback((element: HTMLDivElement | null) => {
     messagesScrollRef.current = element;
     setMessagesScrollElement(element);
@@ -658,17 +653,16 @@ export default function ChatView({ threadId }: ChatViewProps) {
     },
     [setComposerDraftPrompt, threadId],
   );
-  const addComposerImage = useCallback(
-    (image: ComposerImageAttachment) => {
-      addComposerDraftImage(threadId, image);
-    },
-    [addComposerDraftImage, threadId],
-  );
   const addComposerImagesToDraft = useCallback(
-    (images: ComposerImageAttachment[]) => {
-      addComposerDraftImages(threadId, images);
+    (
+      snapshots: Array<{
+        attachment: ComposerImageAttachment;
+        payload: ComposerImageAttachmentPayload;
+      }>,
+    ) => {
+      addComposerDraftImageSnapshots(threadId, snapshots);
     },
-    [addComposerDraftImages, threadId],
+    [addComposerDraftImageSnapshots, threadId],
   );
   const removeComposerImageFromDraft = useCallback(
     (imageId: string) => {
@@ -818,8 +812,10 @@ export default function ChatView({ threadId }: ChatViewProps) {
       ),
     [lockedProvider, modelOptionsByProvider],
   );
+  const pendingComposerStageCount = pendingComposerStageCountByThreadId[threadId] ?? 0;
   const phase = derivePhase(activeThread?.session ?? null);
-  const isSendBusy = sendPhase !== "idle";
+  const isComposerStagePending = pendingComposerStageCount > 0;
+  const isSendBusy = sendPhase !== "idle" || isComposerStagePending;
   const isPreparingWorktree = sendPhase === "preparing-worktree";
   const isWorking = phase === "running" || isSendBusy || isConnecting || isRevertingCheckpoint;
   const nowIso = new Date(nowTick).toISOString();
@@ -1295,6 +1291,36 @@ export default function ChatView({ threadId }: ChatViewProps) {
       focusComposer();
     });
   }, [focusComposer]);
+  const waitForPendingComposerStages = useCallback(async (targetThreadId: ThreadId) => {
+    while (true) {
+      const pendingPromises = Array.from(
+        pendingComposerStagePromisesByThreadIdRef.current.get(targetThreadId) ?? [],
+      );
+      if (pendingPromises.length === 0) {
+        return;
+      }
+      await Promise.allSettled(pendingPromises);
+    }
+  }, []);
+  const adjustPendingComposerStageCount = useCallback((targetThreadId: ThreadId, delta: number) => {
+    setPendingComposerStageCountByThreadId((existing) => {
+      const nextCount = Math.max(0, (existing[targetThreadId] ?? 0) + delta);
+      if (nextCount === 0) {
+        if (!(targetThreadId in existing)) {
+          return existing;
+        }
+        const { [targetThreadId]: _removed, ...rest } = existing;
+        return rest;
+      }
+      if (existing[targetThreadId] === nextCount) {
+        return existing;
+      }
+      return {
+        ...existing,
+        [targetThreadId]: nextCount,
+      };
+    });
+  }, []);
   const openProjectShellView = useCallback(
     async (createNewShell = false) => {
       if (!activeProject) return;
@@ -1709,6 +1735,14 @@ export default function ChatView({ threadId }: ChatViewProps) {
   }, [composerImages]);
 
   useEffect(() => {
+    composerAttachmentPayloadsRef.current = composerAttachmentPayloads;
+  }, [composerAttachmentPayloads]);
+
+  useEffect(() => {
+    pendingComposerStageCountByThreadIdRef.current = pendingComposerStageCountByThreadId;
+  }, [pendingComposerStageCountByThreadId]);
+
+  useEffect(() => {
     if (!activeThread?.id) return;
     if (activeThread.messages.length === 0) {
       return;
@@ -1757,72 +1791,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
     setIsDragOverComposer(false);
     setExpandedImage(null);
   }, [threadId]);
-
-  useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      if (composerImages.length === 0) {
-        clearComposerDraftPersistedAttachments(threadId);
-        return;
-      }
-      const getPersistedAttachmentsForThread = () =>
-        useComposerDraftStore.getState().draftsByThreadId[threadId]?.persistedAttachments ?? [];
-      try {
-        const currentPersistedAttachments = getPersistedAttachmentsForThread();
-        const existingPersistedById = new Map(
-          currentPersistedAttachments.map((attachment) => [attachment.id, attachment]),
-        );
-        const stagedAttachmentById = new Map<string, PersistedComposerImageAttachment>();
-        await Promise.all(
-          composerImages.map(async (image) => {
-            try {
-              const dataUrl = await readFileAsDataUrl(image.file);
-              stagedAttachmentById.set(image.id, {
-                id: image.id,
-                name: image.name,
-                mimeType: image.mimeType,
-                sizeBytes: image.sizeBytes,
-                dataUrl,
-              });
-            } catch {
-              const existingPersisted = existingPersistedById.get(image.id);
-              if (existingPersisted) {
-                stagedAttachmentById.set(image.id, existingPersisted);
-              }
-            }
-          }),
-        );
-        const serialized = Array.from(stagedAttachmentById.values());
-        if (cancelled) {
-          return;
-        }
-        // Stage attachments in persisted draft state first so persist middleware can write them.
-        syncComposerDraftPersistedAttachments(threadId, serialized);
-      } catch {
-        const currentImageIds = new Set(composerImages.map((image) => image.id));
-        const fallbackPersistedAttachments = getPersistedAttachmentsForThread();
-        const fallbackPersistedIds = fallbackPersistedAttachments
-          .map((attachment) => attachment.id)
-          .filter((id) => currentImageIds.has(id));
-        const fallbackPersistedIdSet = new Set(fallbackPersistedIds);
-        const fallbackAttachments = fallbackPersistedAttachments.filter((attachment) =>
-          fallbackPersistedIdSet.has(attachment.id),
-        );
-        if (cancelled) {
-          return;
-        }
-        syncComposerDraftPersistedAttachments(threadId, fallbackAttachments);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    clearComposerDraftPersistedAttachments,
-    composerImages,
-    syncComposerDraftPersistedAttachments,
-    threadId,
-  ]);
 
   const closeExpandedImage = useCallback(() => {
     setExpandedImage(null);
@@ -1965,8 +1933,11 @@ export default function ChatView({ threadId }: ChatViewProps) {
     (files: File[]) => {
       if (!activeThreadId || files.length === 0) return;
 
-      const nextImages: ComposerImageAttachment[] = [];
-      let nextImageCount = composerImagesRef.current.length;
+      const targetThreadId = activeThreadId;
+      const acceptedFiles: Array<{ id: string; file: File }> = [];
+      let nextImageCount =
+        composerImagesRef.current.length +
+        (pendingComposerStageCountByThreadIdRef.current[targetThreadId] ?? 0);
       let error: string | null = null;
       for (const file of files) {
         if (!file.type.startsWith("image/")) {
@@ -1982,27 +1953,65 @@ export default function ChatView({ threadId }: ChatViewProps) {
           break;
         }
 
-        const previewUrl = URL.createObjectURL(file);
-        nextImages.push({
-          type: "image",
+        acceptedFiles.push({
           id: randomUuid(),
-          name: file.name || "image",
-          mimeType: file.type,
-          sizeBytes: file.size,
-          previewUrl,
           file,
         });
         nextImageCount += 1;
       }
 
-      if (nextImages.length === 1 && nextImages[0]) {
-        addComposerImage(nextImages[0]);
-      } else if (nextImages.length > 1) {
-        addComposerImagesToDraft(nextImages);
+      setThreadError(targetThreadId, error);
+      if (acceptedFiles.length === 0) {
+        return;
       }
-      setThreadError(activeThreadId, error);
+
+      adjustPendingComposerStageCount(targetThreadId, acceptedFiles.length);
+      const pendingStagePromises =
+        pendingComposerStagePromisesByThreadIdRef.current.get(targetThreadId) ??
+        new Set<Promise<void>>();
+      pendingComposerStagePromisesByThreadIdRef.current.set(targetThreadId, pendingStagePromises);
+      const stagePromise = Promise.all(
+        acceptedFiles.map(async ({ id, file }) => {
+          try {
+            return {
+              fileName: file.name || "image",
+              snapshot: await snapshotImageFile(file, id),
+            } as const;
+          } catch {
+            return {
+              fileName: file.name || "image",
+              snapshot: null,
+            } as const;
+          }
+        }),
+      )
+        .then((results) => {
+          const successfulSnapshots = results.flatMap((result) =>
+            result.snapshot ? [result.snapshot] : [],
+          );
+          if (successfulSnapshots.length > 0) {
+            addComposerImagesToDraft(successfulSnapshots);
+          }
+          const failedResult = results.find((result) => result.snapshot === null);
+          if (failedResult) {
+            setThreadError(
+              targetThreadId,
+              `Failed to read '${failedResult.fileName}'. Re-add the image and try again.`,
+            );
+            return;
+          }
+          setThreadError(targetThreadId, error);
+        })
+        .finally(() => {
+          adjustPendingComposerStageCount(targetThreadId, -acceptedFiles.length);
+          pendingStagePromises.delete(stagePromise);
+          if (pendingStagePromises.size === 0) {
+            pendingComposerStagePromisesByThreadIdRef.current.delete(targetThreadId);
+          }
+        });
+      pendingStagePromises.add(stagePromise);
     },
-    [activeThreadId, addComposerImage, addComposerImagesToDraft, setThreadError],
+    [activeThreadId, addComposerImagesToDraft, adjustPendingComposerStageCount, setThreadError],
   );
 
   const removeComposerImage = useCallback(
@@ -2129,12 +2138,17 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const onSend = async (e?: { preventDefault: () => void }) => {
     e?.preventDefault();
     const api = readNativeApi();
-    if (!api || !activeThread || isSendBusy || isConnecting || sendInFlightRef.current) return;
+    if (!api || !activeThread || isConnecting || sendInFlightRef.current || sendPhase !== "idle") {
+      return;
+    }
     if (activePendingProgress) {
       onAdvanceActivePendingUserInput();
       return;
     }
-    const trimmed = prompt.trim();
+    await waitForPendingComposerStages(activeThread.id);
+    const trimmed = promptRef.current.trim();
+    const composerImagesSnapshot = [...composerImagesRef.current];
+    const composerAttachmentPayloadsSnapshot = [...composerAttachmentPayloadsRef.current];
     if (showPlanFollowUpPrompt && activeProposedPlan) {
       const followUp = resolvePlanFollowUpSubmission({
         draftText: trimmed,
@@ -2152,7 +2166,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
       return;
     }
     const standaloneSlashCommand =
-      composerImages.length === 0 ? parseStandaloneComposerSlashCommand(trimmed) : null;
+      composerImagesSnapshot.length === 0 ? parseStandaloneComposerSlashCommand(trimmed) : null;
     if (standaloneSlashCommand) {
       await handleInteractionModeChange(standaloneSlashCommand);
       promptRef.current = "";
@@ -2162,7 +2176,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
       setComposerTrigger(null);
       return;
     }
-    if (!trimmed && composerImages.length === 0) return;
+    if (!trimmed && composerImagesSnapshot.length === 0) return;
     if (!activeProject) return;
     const threadIdForSend = activeThread.id;
     const isFirstMessage = !isServerThread || activeThread.messages.length === 0;
@@ -2183,20 +2197,35 @@ export default function ChatView({ threadId }: ChatViewProps) {
       return;
     }
 
+    const attachmentPayloadById = new Map(
+      composerAttachmentPayloadsSnapshot.map((payload) => [payload.id, payload]),
+    );
+    const missingAttachment = composerImagesSnapshot.find(
+      (image) => !attachmentPayloadById.has(image.id),
+    );
+    if (missingAttachment) {
+      setThreadError(
+        threadIdForSend,
+        `Failed to prepare '${missingAttachment.name}' for upload. Re-add the image and try again.`,
+      );
+      return;
+    }
+
     sendInFlightRef.current = true;
     beginSendPhase(baseBranchForWorktree ? "preparing-worktree" : "sending-turn");
 
-    const composerImagesSnapshot = [...composerImages];
     const messageIdForSend = newMessageId();
     const messageCreatedAt = new Date().toISOString();
+    const composerAttachmentPayloadsForSend = composerImagesSnapshot.flatMap((image) => {
+      const payload = attachmentPayloadById.get(image.id);
+      return payload ? [payload] : [];
+    });
     const turnAttachmentsPromise = Promise.all(
-      composerImagesSnapshot.map(async (image) => ({
-        type: "image" as const,
-        name: image.name,
-        mimeType: image.mimeType,
-        sizeBytes: image.sizeBytes,
-        dataUrl: await readFileAsDataUrl(image.file),
-      })),
+      composerAttachmentPayloadsForSend.map((payload) => payloadToUploadAttachment(payload)),
+    );
+    const retryComposerImageSnapshots = createRetryComposerImageSnapshots(
+      composerImagesSnapshot,
+      composerAttachmentPayloadsForSend,
     );
     const optimisticAttachments = composerImagesSnapshot.map((image) => ({
       type: "image" as const,
@@ -2395,7 +2424,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
         promptRef.current = trimmed;
         setPrompt(trimmed);
         setComposerCursor(trimmed.length);
-        addComposerImagesToDraft(composerImagesSnapshot.map(cloneComposerImageForRetry));
+        addComposerImagesToDraft(retryComposerImageSnapshots);
         setComposerTrigger(detectComposerTrigger(trimmed, trimmed.length));
       }
       setThreadError(

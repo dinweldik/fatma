@@ -183,6 +183,17 @@ body {
     overscroll-behavior: contain;
   }
 
+  .project-shell-terminal[data-mobile="true"] .xterm,
+  .project-shell-terminal[data-mobile="true"] .xterm-viewport,
+  .project-shell-terminal[data-mobile="true"] .xterm-screen,
+  .project-shell-terminal[data-mobile="true"] .xterm-screen canvas {
+    touch-action: pan-y pinch-zoom;
+  }
+
+  .project-shell-terminal[data-mobile="true"] .xterm-viewport {
+    -webkit-overflow-scrolling: touch;
+  }
+
   .project-shell-terminal[data-mobile="true"][data-selection-mode="true"]
     .xterm
     .xterm-accessibility {

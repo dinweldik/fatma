@@ -49,6 +49,12 @@ interface TestFixture {
 let fixture: TestFixture;
 const wsRequests: WsRequestEnvelope["body"][] = [];
 const wsLink = ws.link(/ws(s)?:\/\/.*/);
+let nextPushSequence = 1;
+let wsRpcOverride:
+  | ((
+      request: WsRequestEnvelope["body"],
+    ) => { result?: unknown; error?: { message: string } } | null)
+  | null = null;
 
 interface ViewportSpec {
   name: string;
@@ -380,11 +386,21 @@ function resolveWsRpc(tag: string): unknown {
   return {};
 }
 
+function requestCommandType(request: WsRequestEnvelope["body"]): string | null {
+  const command = request.command;
+  if (!command || typeof command !== "object" || !("type" in command)) {
+    return null;
+  }
+  const type = (command as { type?: unknown }).type;
+  return typeof type === "string" ? type : null;
+}
+
 const worker = setupWorker(
   wsLink.addEventListener("connection", ({ client }) => {
     client.send(
       JSON.stringify({
         type: "push",
+        sequence: nextPushSequence++,
         channel: WS_CHANNELS.serverWelcome,
         data: fixture.welcome,
       }),
@@ -401,10 +417,13 @@ const worker = setupWorker(
       const method = request.body?._tag;
       if (typeof method !== "string") return;
       wsRequests.push(request.body);
+      const overrideResponse = wsRpcOverride?.(request.body) ?? null;
       client.send(
         JSON.stringify({
           id: request.id,
-          result: resolveWsRpc(method),
+          ...(overrideResponse?.error
+            ? { error: overrideResponse.error }
+            : { result: overrideResponse?.result ?? resolveWsRpc(method) }),
         }),
       );
     });
@@ -476,6 +495,35 @@ async function waitForComposerEditor(): Promise<HTMLElement> {
   return waitForElement(
     () => document.querySelector<HTMLElement>('[contenteditable="true"]'),
     "Unable to find composer editor.",
+  );
+}
+
+async function attachComposerImage(file: File): Promise<void> {
+  const input = await waitForElement(
+    () => document.querySelector<HTMLInputElement>('input[type="file"][accept="image/*"]'),
+    "Unable to find composer file input.",
+  );
+  const dataTransfer = new DataTransfer();
+  dataTransfer.items.add(file);
+  Object.defineProperty(input, "files", {
+    configurable: true,
+    value: dataTransfer.files,
+  });
+  input.dispatchEvent(new Event("change", { bubbles: true }));
+  await waitForLayout();
+}
+
+async function waitForComposerAttachment(name: string): Promise<HTMLButtonElement> {
+  return waitForElement(
+    () => document.querySelector<HTMLButtonElement>(`button[aria-label="Remove ${name}"]`),
+    `Unable to find composer attachment '${name}'.`,
+  );
+}
+
+async function waitForSendButton(): Promise<HTMLButtonElement> {
+  return waitForElement(
+    () => document.querySelector<HTMLButtonElement>('button[aria-label="Send message"]'),
+    "Unable to find composer send button.",
   );
 }
 
@@ -670,6 +718,8 @@ describe("ChatView timeline estimator parity (full app)", () => {
     localStorage.clear();
     document.body.innerHTML = "";
     wsRequests.length = 0;
+    nextPushSequence = 1;
+    wsRpcOverride = null;
     useComposerDraftStore.setState({
       draftsByThreadId: {},
       draftThreadsByThreadId: {},
@@ -970,8 +1020,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
       await waitForLayout();
 
       const sendButton = await waitForElement(
-        () =>
-          document.querySelector<HTMLButtonElement>('button[aria-label="Send message"]'),
+        () => document.querySelector<HTMLButtonElement>('button[aria-label="Send message"]'),
         "Unable to find composer send button.",
       );
       sendButton.click();
@@ -997,6 +1046,154 @@ describe("ChatView timeline estimator parity (full app)", () => {
       expect(document.querySelector('[data-chat-composer-form="true"]')).not.toBeNull();
       expect(document.body.textContent).not.toContain(
         "Select a thread or create a new one to get started.",
+      );
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("submits staged image attachments without rereading the original File", async () => {
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: "msg-user-target-upload" as MessageId,
+        targetText: "upload fixture",
+      }),
+    });
+
+    try {
+      useComposerDraftStore.getState().setPrompt(THREAD_ID, "send staged attachment");
+      const file = new File([new Uint8Array([1, 2, 3, 4])], "attachment.png", {
+        type: "image/png",
+      });
+      await attachComposerImage(file);
+      await waitForComposerAttachment("attachment.png");
+      Object.defineProperty(file, "arrayBuffer", {
+        configurable: true,
+        value: vi
+          .fn()
+          .mockRejectedValue(
+            new DOMException(
+              "The requested file could not be read, typically due to permission problems that have occurred after a reference to a file was acquired.",
+              "NotReadableError",
+            ),
+          ),
+      });
+      wsRequests.length = 0;
+
+      (await waitForSendButton()).click();
+
+      await vi.waitFor(
+        () => {
+          const turnStartRequest = wsRequests.find(
+            (request) =>
+              request._tag === ORCHESTRATION_WS_METHODS.dispatchCommand &&
+              requestCommandType(request) === "thread.turn.start",
+          );
+          expect(turnStartRequest).toBeTruthy();
+          expect(turnStartRequest).toMatchObject({
+            command: {
+              type: "thread.turn.start",
+              threadId: THREAD_ID,
+              message: {
+                attachments: [
+                  {
+                    type: "image",
+                    name: "attachment.png",
+                    mimeType: "image/png",
+                    sizeBytes: 4,
+                    dataUrl: "data:image/png;base64,AQIDBA==",
+                  },
+                ],
+              },
+            },
+          });
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("restores failed attachment sends and allows retry without the original File", async () => {
+    let failTurnStartOnce = true;
+    wsRpcOverride = (request) => {
+      if (
+        failTurnStartOnce &&
+        request._tag === ORCHESTRATION_WS_METHODS.dispatchCommand &&
+        requestCommandType(request) === "thread.turn.start"
+      ) {
+        failTurnStartOnce = false;
+        return {
+          error: {
+            message: "turn failed",
+          },
+        };
+      }
+      return null;
+    };
+
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: "msg-user-target-upload-retry" as MessageId,
+        targetText: "upload retry fixture",
+      }),
+    });
+
+    try {
+      useComposerDraftStore.getState().setPrompt(THREAD_ID, "retry staged attachment");
+      const file = new File([new Uint8Array([5, 6, 7, 8])], "retry.png", {
+        type: "image/png",
+      });
+      await attachComposerImage(file);
+      await waitForComposerAttachment("retry.png");
+      Object.defineProperty(file, "arrayBuffer", {
+        configurable: true,
+        value: vi.fn().mockRejectedValue(new DOMException("stale file handle", "NotReadableError")),
+      });
+
+      (await waitForSendButton()).click();
+
+      await vi.waitFor(
+        () => {
+          expect(document.body.textContent).toContain("turn failed");
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+      await waitForComposerAttachment("retry.png");
+
+      wsRequests.length = 0;
+      (await waitForSendButton()).click();
+
+      await vi.waitFor(
+        () => {
+          const turnStartRequest = wsRequests.find(
+            (request) =>
+              request._tag === ORCHESTRATION_WS_METHODS.dispatchCommand &&
+              requestCommandType(request) === "thread.turn.start",
+          );
+          expect(turnStartRequest).toBeTruthy();
+          expect(turnStartRequest).toMatchObject({
+            command: {
+              type: "thread.turn.start",
+              threadId: THREAD_ID,
+              message: {
+                attachments: [
+                  {
+                    type: "image",
+                    name: "retry.png",
+                    mimeType: "image/png",
+                    sizeBytes: 4,
+                    dataUrl: "data:image/png;base64,BQYHCA==",
+                  },
+                ],
+              },
+            },
+          });
+        },
+        { timeout: 8_000, interval: 16 },
       );
     } finally {
       await mounted.cleanup();

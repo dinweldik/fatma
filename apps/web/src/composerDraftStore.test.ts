@@ -5,6 +5,8 @@ import * as composerDraftAttachmentPersistence from "./composerDraftAttachmentPe
 import {
   COMPOSER_DRAFT_STORAGE_KEY,
   type ComposerImageAttachment,
+  type ComposerImageSnapshot,
+  type PersistedComposerImageAttachment,
   useComposerDraftStore,
 } from "./composerDraftStore";
 
@@ -14,24 +16,17 @@ function makeImage(input: {
   name?: string;
   mimeType?: string;
   sizeBytes?: number;
-  lastModified?: number;
 }): ComposerImageAttachment {
   const name = input.name ?? "image.png";
   const mimeType = input.mimeType ?? "image/png";
   const sizeBytes = input.sizeBytes ?? 4;
-  const lastModified = input.lastModified ?? 1_700_000_000_000;
-  const file = new File([new Uint8Array(sizeBytes).fill(1)], name, {
-    type: mimeType,
-    lastModified,
-  });
   return {
     type: "image",
     id: input.id,
     name,
     mimeType,
-    sizeBytes: file.size,
+    sizeBytes,
     previewUrl: input.previewUrl,
-    file,
   };
 }
 
@@ -40,14 +35,42 @@ function makePersistedAttachment(input: {
   name?: string;
   mimeType?: string;
   sizeBytes?: number;
-  dataUrl?: string;
-}) {
+  blob?: Blob;
+}): PersistedComposerImageAttachment {
+  const mimeType = input.mimeType ?? "image/png";
+  const blob =
+    input.blob ?? new Blob([new Uint8Array(input.sizeBytes ?? 4).fill(1)], { type: mimeType });
   return {
     id: input.id,
     name: input.name ?? "image.png",
-    mimeType: input.mimeType ?? "image/png",
-    sizeBytes: input.sizeBytes ?? 4,
-    dataUrl: input.dataUrl ?? "data:image/png;base64,AQIDBA==",
+    mimeType,
+    sizeBytes: blob.size,
+    blob,
+  };
+}
+
+function makeSnapshot(input: {
+  id: string;
+  previewUrl: string;
+  name?: string;
+  mimeType?: string;
+  sizeBytes?: number;
+}): ComposerImageSnapshot {
+  const payload = makePersistedAttachment({
+    id: input.id,
+    ...(input.name !== undefined ? { name: input.name } : {}),
+    ...(input.mimeType !== undefined ? { mimeType: input.mimeType } : {}),
+    ...(input.sizeBytes !== undefined ? { sizeBytes: input.sizeBytes } : {}),
+  });
+  return {
+    attachment: makeImage({
+      id: input.id,
+      previewUrl: input.previewUrl,
+      name: payload.name,
+      mimeType: payload.mimeType,
+      sizeBytes: payload.sizeBytes,
+    }),
+    payload,
   };
 }
 
@@ -75,7 +98,7 @@ function createMemoryLocalStorage() {
   };
 }
 
-describe("composerDraftStore addImages", () => {
+describe("composerDraftStore addImageSnapshots", () => {
   const threadId = ThreadId.makeUnsafe("thread-dedupe");
   let originalRevokeObjectUrl: typeof URL.revokeObjectURL;
   let revokeSpy: ReturnType<typeof vi.fn<(url: string) => void>>;
@@ -96,24 +119,22 @@ describe("composerDraftStore addImages", () => {
   });
 
   it("deduplicates identical images in one batch by file signature", () => {
-    const first = makeImage({
+    const first = makeSnapshot({
       id: "img-1",
       previewUrl: "blob:first",
       name: "same.png",
       mimeType: "image/png",
       sizeBytes: 12,
-      lastModified: 12345,
     });
-    const duplicate = makeImage({
+    const duplicate = makeSnapshot({
       id: "img-2",
       previewUrl: "blob:duplicate",
       name: "same.png",
       mimeType: "image/png",
       sizeBytes: 12,
-      lastModified: 12345,
     });
 
-    useComposerDraftStore.getState().addImages(threadId, [first, duplicate]);
+    useComposerDraftStore.getState().addImageSnapshots(threadId, [first, duplicate]);
 
     const draft = useComposerDraftStore.getState().draftsByThreadId[threadId];
     expect(draft?.images.map((image) => image.id)).toEqual(["img-1"]);
@@ -121,25 +142,23 @@ describe("composerDraftStore addImages", () => {
   });
 
   it("deduplicates against existing images across calls by file signature", () => {
-    const first = makeImage({
+    const first = makeSnapshot({
       id: "img-a",
       previewUrl: "blob:a",
       name: "same.png",
       mimeType: "image/png",
       sizeBytes: 9,
-      lastModified: 777,
     });
-    const duplicateLater = makeImage({
+    const duplicateLater = makeSnapshot({
       id: "img-b",
       previewUrl: "blob:b",
       name: "same.png",
       mimeType: "image/png",
       sizeBytes: 9,
-      lastModified: 999,
     });
 
-    useComposerDraftStore.getState().addImage(threadId, first);
-    useComposerDraftStore.getState().addImage(threadId, duplicateLater);
+    useComposerDraftStore.getState().addImageSnapshots(threadId, [first]);
+    useComposerDraftStore.getState().addImageSnapshots(threadId, [duplicateLater]);
 
     const draft = useComposerDraftStore.getState().draftsByThreadId[threadId];
     expect(draft?.images.map((image) => image.id)).toEqual(["img-a"]);
@@ -147,16 +166,16 @@ describe("composerDraftStore addImages", () => {
   });
 
   it("does not revoke blob URLs that are still used by an accepted duplicate image", () => {
-    const first = makeImage({
+    const first = makeSnapshot({
       id: "img-shared",
       previewUrl: "blob:shared",
     });
-    const duplicateSameUrl = makeImage({
+    const duplicateSameUrl = makeSnapshot({
       id: "img-shared",
       previewUrl: "blob:shared",
     });
 
-    useComposerDraftStore.getState().addImages(threadId, [first, duplicateSameUrl]);
+    useComposerDraftStore.getState().addImageSnapshots(threadId, [first, duplicateSameUrl]);
 
     const draft = useComposerDraftStore.getState().draftsByThreadId[threadId];
     expect(draft?.images.map((image) => image.id)).toEqual(["img-shared"]);
@@ -185,11 +204,11 @@ describe("composerDraftStore clearComposerContent", () => {
   });
 
   it("does not revoke blob preview URLs when clearing composer content", () => {
-    const first = makeImage({
+    const first = makeSnapshot({
       id: "img-optimistic",
       previewUrl: "blob:optimistic",
     });
-    useComposerDraftStore.getState().addImage(threadId, first);
+    useComposerDraftStore.getState().addImageSnapshots(threadId, [first]);
 
     useComposerDraftStore.getState().clearComposerContent(threadId);
 
@@ -530,17 +549,10 @@ describe("composerDraftStore persistence", () => {
       await import("./composerDraftStore");
 
     useComposerDraftStore.getState().setPrompt(threadId, "with image");
-    useComposerDraftStore.getState().addImage(
-      threadId,
-      makeImage({
+    useComposerDraftStore.getState().addImageSnapshots(threadId, [
+      makeSnapshot({
         id: "img-1",
         previewUrl: "blob:img-1",
-      }),
-    );
-    useComposerDraftStore.getState().syncPersistedAttachments(threadId, [
-      makePersistedAttachment({
-        id: "img-1",
-        dataUrl: "data:image/png;base64,AAEC",
       }),
     ]);
     await flushAsyncWork();
@@ -562,6 +574,34 @@ describe("composerDraftStore persistence", () => {
     ]);
   });
 
+  it("keeps attachment payloads in memory and marks them non-persisted when IndexedDB writes fail", async () => {
+    const memoryLocalStorage = createMemoryLocalStorage();
+    vi.stubGlobal("localStorage", memoryLocalStorage);
+    vi.doMock("./composerDraftAttachmentPersistence", async () => {
+      const actual = await vi.importActual<typeof composerDraftAttachmentPersistence>(
+        "./composerDraftAttachmentPersistence",
+      );
+      return {
+        ...actual,
+        persistComposerDraftAttachments: vi.fn().mockResolvedValue(new Set()),
+      };
+    });
+    const { useComposerDraftStore } = await import("./composerDraftStore");
+
+    useComposerDraftStore.getState().addImageSnapshots(threadId, [
+      makeSnapshot({
+        id: "img-1",
+        previewUrl: "blob:img-1",
+      }),
+    ]);
+    await flushAsyncWork();
+
+    const draft = useComposerDraftStore.getState().draftsByThreadId[threadId];
+    expect(draft?.attachmentPayloads.map((attachment) => attachment.id)).toEqual(["img-1"]);
+    expect(draft?.persistedAttachmentMetadata).toEqual([]);
+    expect(draft?.nonPersistedImageIds).toEqual(["img-1"]);
+  });
+
   it("swallows QuotaExceededError from localStorage persistence", async () => {
     const memoryLocalStorage = createMemoryLocalStorage();
     const quotaError = new DOMException("Quota exceeded", "QuotaExceededError");
@@ -581,10 +621,7 @@ describe("composerDraftStore persistence", () => {
 
   it("rehydrates persisted attachments from IndexedDB-backed storage", async () => {
     const memoryLocalStorage = createMemoryLocalStorage();
-    const persistedAttachment = makePersistedAttachment({
-      id: "img-1",
-      dataUrl: "data:image/png;base64,AAEC",
-    });
+    const persistedAttachment = makePersistedAttachment({ id: "img-1" });
     vi.stubGlobal("localStorage", memoryLocalStorage);
     vi.doMock("./composerDraftAttachmentPersistence", async () => {
       const actual = await vi.importActual<typeof composerDraftAttachmentPersistence>(

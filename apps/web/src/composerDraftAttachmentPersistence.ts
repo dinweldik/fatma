@@ -1,5 +1,10 @@
 import { ThreadId } from "@fatma/contracts";
 
+import {
+  legacyDataUrlToPayload,
+  type ComposerImageAttachmentPayload,
+} from "./composerImageSnapshots";
+
 export interface PersistedComposerImageAttachmentMetadata {
   id: string;
   name: string;
@@ -7,11 +12,18 @@ export interface PersistedComposerImageAttachmentMetadata {
   sizeBytes: number;
 }
 
-export interface PersistedComposerImageAttachment extends PersistedComposerImageAttachmentMetadata {
+export type PersistedComposerImageAttachment = ComposerImageAttachmentPayload;
+
+export interface LegacyPersistedComposerImageAttachment extends PersistedComposerImageAttachmentMetadata {
   dataUrl: string;
 }
 
 interface ComposerDraftAttachmentRecord extends PersistedComposerImageAttachment {
+  key: string;
+  threadId: ThreadId;
+}
+
+interface LegacyComposerDraftAttachmentRecord extends LegacyPersistedComposerImageAttachment {
   key: string;
   threadId: ThreadId;
 }
@@ -107,7 +119,7 @@ async function openComposerDraftAttachmentDatabase(): Promise<IDBDatabase | null
 
 async function readComposerDraftAttachmentRecords(
   threadId: ThreadId,
-): Promise<ComposerDraftAttachmentRecord[]> {
+): Promise<Array<ComposerDraftAttachmentRecord | LegacyComposerDraftAttachmentRecord>> {
   const database = await openComposerDraftAttachmentDatabase();
   if (!database) {
     return [];
@@ -118,7 +130,7 @@ async function readComposerDraftAttachmentRecords(
     const index = store.index(COMPOSER_DRAFT_ATTACHMENT_THREAD_INDEX);
     const records = await requestToPromise(index.getAll(threadId));
     await transactionToPromise(transaction);
-    return records as ComposerDraftAttachmentRecord[];
+    return records as Array<ComposerDraftAttachmentRecord | LegacyComposerDraftAttachmentRecord>;
   } catch {
     return [];
   }
@@ -205,6 +217,24 @@ export function normalizePersistedComposerImageAttachment(
     return null;
   }
   const candidate = value as Record<string, unknown>;
+  const blob = candidate.blob;
+  if (!(blob instanceof Blob)) {
+    return null;
+  }
+  return {
+    ...metadata,
+    blob,
+  };
+}
+
+export function normalizeLegacyPersistedComposerImageAttachment(
+  value: unknown,
+): LegacyPersistedComposerImageAttachment | null {
+  const metadata = normalizePersistedComposerImageAttachmentMetadata(value);
+  if (!metadata) {
+    return null;
+  }
+  const candidate = value as Record<string, unknown>;
   const dataUrl = candidate.dataUrl;
   if (typeof dataUrl !== "string" || dataUrl.length === 0) {
     return null;
@@ -240,17 +270,23 @@ export async function loadPersistedComposerDraftAttachments(
   const recordById = new Map(records.map((record) => [record.id, record]));
   return attachmentMetadata.flatMap((metadata) => {
     const record = recordById.get(metadata.id);
-    return record
-      ? [
-          {
-            id: record.id,
-            name: record.name,
-            mimeType: record.mimeType,
-            sizeBytes: record.sizeBytes,
-            dataUrl: record.dataUrl,
-          } satisfies PersistedComposerImageAttachment,
-        ]
-      : [];
+    if (!record) {
+      return [];
+    }
+    const persistedRecord = normalizePersistedComposerImageAttachment(record);
+    if (persistedRecord) {
+      return [persistedRecord];
+    }
+    const legacyRecord = normalizeLegacyPersistedComposerImageAttachment(record);
+    if (!legacyRecord) {
+      return [];
+    }
+    const payload = legacyDataUrlToPayload(legacyRecord);
+    if (!payload) {
+      return [];
+    }
+    void putComposerDraftAttachment(threadId, payload).catch(() => undefined);
+    return [payload];
   });
 }
 
@@ -262,9 +298,6 @@ export async function persistComposerDraftAttachments(
     return new Set();
   }
   const existingAttachments = await readComposerDraftAttachmentRecords(threadId);
-  const existingAttachmentById = new Map(
-    existingAttachments.map((attachment) => [attachment.id, attachment]),
-  );
   const nextAttachmentIdSet = new Set(attachments.map((attachment) => attachment.id));
 
   await Promise.all(
@@ -275,17 +308,6 @@ export async function persistComposerDraftAttachments(
 
   const persistedAttachmentIds = new Set<string>();
   for (const attachment of attachments) {
-    const existingAttachment = existingAttachmentById.get(attachment.id);
-    if (
-      existingAttachment &&
-      existingAttachment.name === attachment.name &&
-      existingAttachment.mimeType === attachment.mimeType &&
-      existingAttachment.sizeBytes === attachment.sizeBytes &&
-      existingAttachment.dataUrl === attachment.dataUrl
-    ) {
-      persistedAttachmentIds.add(attachment.id);
-      continue;
-    }
     try {
       await putComposerDraftAttachment(threadId, attachment);
       persistedAttachmentIds.add(attachment.id);

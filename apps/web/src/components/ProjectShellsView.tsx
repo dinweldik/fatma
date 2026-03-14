@@ -26,10 +26,12 @@ import {
   shortcutLabelForCommand,
   terminalNavigationShortcutData,
 } from "../keybindings";
+import { readTextFromClipboard, writeTextToClipboard } from "../lib/clipboard";
 import { serverConfigQueryOptions } from "../lib/serverReactQuery";
 import { cn } from "../lib/utils";
 import { useMobileViewport } from "../mobileViewport";
 import { readNativeApi } from "../nativeApi";
+import { readWrappedTerminalBlockText, resolveTouchedBufferLine } from "../projectShellMobile";
 import {
   closeProjectShell,
   createProjectShell,
@@ -50,6 +52,7 @@ import { Button } from "./ui/button";
 const EMPTY_KEYBINDINGS: ResolvedKeybindingsConfig = [];
 const DESKTOP_TERMINAL_FONT_SIZE = 12;
 const MOBILE_TERMINAL_FONT_SIZE = 15;
+const MOBILE_ACCESSORY_BAR_HEIGHT = "5.25rem";
 const MOBILE_SELECTION_LONG_PRESS_MS = 420;
 const MOBILE_SELECTION_MOVE_THRESHOLD_PX = 10;
 
@@ -151,6 +154,9 @@ function controlModifiedInput(data: string): string {
 
 interface ShellTerminalHandle {
   focus: () => void;
+  copySelection: () => Promise<boolean>;
+  pasteFromClipboard: () => Promise<boolean>;
+  selectAll: () => boolean;
 }
 
 interface ShellTerminalViewportProps {
@@ -162,6 +168,7 @@ interface ShellTerminalViewportProps {
   autoFocus: boolean;
   isMobile: boolean;
   selectionMode: boolean;
+  onActionFeedback?: ((message: string) => void) | undefined;
   onSelectionModeChange: (open: boolean) => void;
   transformUserInput: (data: string) => string;
 }
@@ -178,6 +185,11 @@ const ShellTerminalViewport = forwardRef<ShellTerminalHandle, ShellTerminalViewp
     const transformUserInputRef = useRef(props.transformUserInput);
     const longPressTimerRef = useRef<number | null>(null);
     const longPressOriginRef = useRef<{ x: number; y: number } | null>(null);
+    const suppressNextClickRef = useRef(false);
+    const touchScrollStateRef = useRef<{
+      startViewportY: number;
+      touchY: number;
+    } | null>(null);
 
     useEffect(() => {
       transformUserInputRef.current = props.transformUserInput;
@@ -191,6 +203,75 @@ const ShellTerminalViewport = forwardRef<ShellTerminalHandle, ShellTerminalViewp
       longPressOriginRef.current = null;
     }, []);
 
+    const copyTouchedBlock = useCallback(
+      async (clientY: number): Promise<boolean> => {
+        const terminal = terminalRef.current;
+        const container = containerRef.current;
+        if (!terminal || !container) {
+          return false;
+        }
+
+        const rect = container.getBoundingClientRect();
+        const line = resolveTouchedBufferLine({
+          bufferLength: terminal.buffer.active.length,
+          clientY,
+          containerHeight: rect.height,
+          containerTop: rect.top,
+          viewportRows: terminal.rows,
+          viewportY: terminal.buffer.active.viewportY,
+        });
+        if (line === null) {
+          return false;
+        }
+
+        const text = readWrappedTerminalBlockText(terminal.buffer.active, line);
+        if (text.length === 0) {
+          return false;
+        }
+
+        await writeTextToClipboard(text);
+        props.onActionFeedback?.("Copied block");
+        return true;
+      },
+      [props],
+    );
+
+    const copySelection = useCallback(async (): Promise<boolean> => {
+      const terminal = terminalRef.current;
+      if (!terminal || !terminal.hasSelection()) {
+        return false;
+      }
+
+      const text = terminal.getSelection();
+      if (text.length === 0) {
+        return false;
+      }
+
+      await writeTextToClipboard(text);
+      terminal.clearSelection();
+      props.onSelectionModeChange(false);
+      props.onActionFeedback?.("Copied selection");
+      return true;
+    }, [props]);
+
+    const pasteFromClipboard = useCallback(async (): Promise<boolean> => {
+      const terminal = terminalRef.current;
+      if (!terminal) {
+        return false;
+      }
+
+      const text = await readTextFromClipboard();
+      if (text.length === 0) {
+        return false;
+      }
+
+      props.onSelectionModeChange(false);
+      terminal.paste(text);
+      terminal.focus();
+      props.onActionFeedback?.("Pasted");
+      return true;
+    }, [props]);
+
     useEffect(() => clearLongPressTimer, [clearLongPressTimer]);
 
     useImperativeHandle(
@@ -200,8 +281,18 @@ const ShellTerminalViewport = forwardRef<ShellTerminalHandle, ShellTerminalViewp
           props.onSelectionModeChange(false);
           terminalRef.current?.focus();
         },
+        copySelection,
+        pasteFromClipboard,
+        selectAll: () => {
+          const terminal = terminalRef.current;
+          if (!terminal) {
+            return false;
+          }
+          terminal.selectAll();
+          return true;
+        },
       }),
-      [props],
+      [copySelection, pasteFromClipboard, props],
     );
 
     useEffect(() => {
@@ -553,12 +644,28 @@ const ShellTerminalViewport = forwardRef<ShellTerminalHandle, ShellTerminalViewp
           x: touch.clientX,
           y: touch.clientY,
         };
+        const touchClientY = touch.clientY;
+        touchScrollStateRef.current = {
+          startViewportY: terminalRef.current?.buffer.active.viewportY ?? 0,
+          touchY: touchClientY,
+        };
         longPressTimerRef.current = window.setTimeout(() => {
-          props.onSelectionModeChange(true);
+          suppressNextClickRef.current = true;
           longPressTimerRef.current = null;
+          void copyTouchedBlock(touchClientY)
+            .then((copied) => {
+              if (!copied) {
+                props.onSelectionModeChange(true);
+                props.onActionFeedback?.("Drag to select, then tap Copy");
+              }
+            })
+            .catch(() => {
+              props.onSelectionModeChange(true);
+              props.onActionFeedback?.("Copy failed");
+            });
         }, MOBILE_SELECTION_LONG_PRESS_MS);
       },
-      [clearLongPressTimer, props],
+      [clearLongPressTimer, copyTouchedBlock, props],
     );
 
     const handleTerminalTouchMoveCapture = useCallback(
@@ -577,11 +684,52 @@ const ShellTerminalViewport = forwardRef<ShellTerminalHandle, ShellTerminalViewp
         ) {
           clearLongPressTimer();
         }
+
+        if (props.selectionMode) {
+          return;
+        }
+
+        const terminal = terminalRef.current;
+        const scrollState = touchScrollStateRef.current;
+        const container = containerRef.current;
+        if (!terminal || !scrollState || !container) {
+          return;
+        }
+
+        const rows = terminal.rows;
+        const rect = container.getBoundingClientRect();
+        if (rows <= 0 || rect.height <= 0) {
+          return;
+        }
+
+        const deltaY = touch.clientY - scrollState.touchY;
+        if (Math.abs(deltaY) < MOBILE_SELECTION_MOVE_THRESHOLD_PX) {
+          return;
+        }
+
+        suppressNextClickRef.current = true;
+        const rowHeight = rect.height / rows;
+        const deltaRows = Math.round(deltaY / rowHeight);
+        const nextViewportY = Math.min(
+          Math.max(scrollState.startViewportY - deltaRows, 0),
+          terminal.buffer.active.baseY,
+        );
+        terminal.scrollToLine(nextViewportY);
+        event.preventDefault();
       },
-      [clearLongPressTimer],
+      [clearLongPressTimer, props.selectionMode],
     );
 
+    const handleTerminalTouchEndCapture = useCallback(() => {
+      clearLongPressTimer();
+      touchScrollStateRef.current = null;
+    }, [clearLongPressTimer]);
+
     const handleTerminalClick = useCallback(() => {
+      if (suppressNextClickRef.current) {
+        suppressNextClickRef.current = false;
+        return;
+      }
       if (props.selectionMode) {
         return;
       }
@@ -595,8 +743,8 @@ const ShellTerminalViewport = forwardRef<ShellTerminalHandle, ShellTerminalViewp
         data-mobile={props.isMobile ? "true" : "false"}
         data-selection-mode={props.selectionMode ? "true" : "false"}
         onClick={handleTerminalClick}
-        onTouchCancelCapture={clearLongPressTimer}
-        onTouchEndCapture={clearLongPressTimer}
+        onTouchCancelCapture={handleTerminalTouchEndCapture}
+        onTouchEndCapture={handleTerminalTouchEndCapture}
         onTouchMoveCapture={handleTerminalTouchMoveCapture}
         onTouchStartCapture={handleTerminalTouchStartCapture}
       />
@@ -649,7 +797,7 @@ function MobileAccessoryButton(props: {
     <Button
       aria-pressed={props.active}
       className={cn(
-        "h-12 rounded-none before:rounded-none text-sm font-semibold",
+        "h-12 min-w-[5.5rem] shrink-0 rounded-none before:rounded-none text-sm font-semibold",
         props.active && "border-primary bg-primary text-primary-foreground",
         props.tone === "danger" &&
           !props.active &&
@@ -666,9 +814,7 @@ function MobileAccessoryButton(props: {
   );
 }
 
-function DesktopShellListButton(props: {
-  createdAt: string;
-  cwd: string;
+function DesktopShellTabButton(props: {
   isActive: boolean;
   isRunning: boolean;
   onSelect: () => void;
@@ -678,33 +824,21 @@ function DesktopShellListButton(props: {
     <button
       type="button"
       className={cn(
-        "flex min-w-52 flex-col items-start gap-1 rounded-2xl border px-3 py-3 text-left transition-colors duration-150 lg:min-w-0",
+        "flex min-w-0 items-center gap-2 rounded-xl border px-3 py-2 text-left transition-colors",
         props.isActive
           ? "border-border bg-accent text-accent-foreground"
           : "border-border/60 bg-background/80 hover:bg-accent/60",
       )}
       onClick={props.onSelect}
     >
-      <div className="flex w-full items-center gap-2">
-        <div className="inline-flex size-8 items-center justify-center rounded-xl bg-muted/70">
-          <SquareTerminalIcon className="size-4" />
-        </div>
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-medium">{props.title}</p>
-          <p className="truncate text-[11px] text-muted-foreground">{props.cwd}</p>
-        </div>
-      </div>
-      <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
-        {props.isRunning ? (
-          <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-300/90">
-            <span className="size-1.5 rounded-full bg-emerald-500 animate-pulse" />
-            Running
-          </span>
-        ) : (
-          <span>Idle</span>
+      <SquareTerminalIcon className="size-3.5 shrink-0" />
+      <span className="truncate text-sm font-medium">{props.title}</span>
+      <span
+        className={cn(
+          "inline-flex size-2 shrink-0 rounded-full",
+          props.isRunning ? "bg-emerald-500" : "bg-muted-foreground/30",
         )}
-        <span>{formatRelativeTime(props.createdAt)}</span>
-      </div>
+      />
     </button>
   );
 }
@@ -731,6 +865,8 @@ export default function ProjectShellsView({
   });
   const [mobileCtrlLatched, setMobileCtrlLatched] = useState(false);
   const [mobileSelectionMode, setMobileSelectionMode] = useState(false);
+  const [mobileActionNotice, setMobileActionNotice] = useState<string | null>(null);
+  const mobileActionNoticeTimerRef = useRef<number | null>(null);
 
   const activeShell = useMemo(() => {
     if (shellId) {
@@ -784,7 +920,29 @@ export default function ProjectShellsView({
   useEffect(() => {
     setMobileCtrlLatched(false);
     setMobileSelectionMode(false);
+    setMobileActionNotice(null);
   }, [activeShellId]);
+
+  useEffect(
+    () => () => {
+      if (mobileActionNoticeTimerRef.current !== null) {
+        window.clearTimeout(mobileActionNoticeTimerRef.current);
+        mobileActionNoticeTimerRef.current = null;
+      }
+    },
+    [],
+  );
+
+  const showMobileActionNotice = useCallback((message: string) => {
+    setMobileActionNotice(message);
+    if (mobileActionNoticeTimerRef.current !== null) {
+      window.clearTimeout(mobileActionNoticeTimerRef.current);
+    }
+    mobileActionNoticeTimerRef.current = window.setTimeout(() => {
+      setMobileActionNotice(null);
+      mobileActionNoticeTimerRef.current = null;
+    }, 1_400);
+  }, []);
 
   const focusTerminal = useCallback(() => {
     terminalHandleRef.current?.focus();
@@ -869,6 +1027,37 @@ export default function ProjectShellsView({
     await writeToActiveShell("\u0003");
   }, [writeToActiveShell]);
 
+  const pasteClipboardIntoShell = useCallback(async () => {
+    try {
+      const pasted = await terminalHandleRef.current?.pasteFromClipboard();
+      if (!pasted) {
+        showMobileActionNotice("Clipboard is empty");
+      }
+    } catch {
+      showMobileActionNotice("Paste failed");
+    }
+  }, [showMobileActionNotice]);
+
+  const copySelectedShellText = useCallback(async () => {
+    try {
+      const copied = await terminalHandleRef.current?.copySelection();
+      if (!copied) {
+        showMobileActionNotice("Select text first");
+      }
+    } catch {
+      showMobileActionNotice("Copy failed");
+    }
+  }, [showMobileActionNotice]);
+
+  const selectAllShellText = useCallback(() => {
+    const selected = terminalHandleRef.current?.selectAll();
+    if (!selected) {
+      showMobileActionNotice("Nothing to select");
+      return;
+    }
+    showMobileActionNotice("Selected all");
+  }, [showMobileActionNotice]);
+
   const transformUserInput = useCallback(
     (data: string) => {
       if (!mobileViewport.isMobile || !mobileCtrlLatched) {
@@ -945,101 +1134,130 @@ export default function ProjectShellsView({
   );
 
   const mobileAccessoryButtons = activeShell
-    ? [
-        {
-          label: "Stop",
-          onPress: () => {
-            void interruptActiveShell();
+    ? mobileSelectionMode
+      ? [
+          {
+            label: "Copy",
+            onPress: () => {
+              void copySelectedShellText();
+            },
           },
-          tone: "danger" as const,
-        },
-        {
-          active: mobileCtrlLatched,
-          label: "Ctrl",
-          onPress: () => {
-            setMobileCtrlLatched((current) => !current);
-            if (mobileSelectionMode) {
+          {
+            label: "Select all",
+            onPress: () => {
+              selectAllShellText();
+            },
+          },
+          {
+            active: true,
+            label: "Done",
+            onPress: () => {
               setMobileSelectionMode(false);
-            }
-            focusTerminal();
+              focusTerminal();
+            },
           },
-        },
-        {
-          label: "↑",
-          onPress: () => {
-            void writeToActiveShell("\u001b[A");
+        ]
+      : [
+          {
+            label: "Stop",
+            onPress: () => {
+              void interruptActiveShell();
+            },
+            tone: "danger" as const,
           },
-        },
-        {
-          label: "Tab",
-          onPress: () => {
-            void writeToActiveShell("\t");
+          {
+            label: "Paste",
+            onPress: () => {
+              void pasteClipboardIntoShell();
+            },
           },
-        },
-        {
-          label: "Esc",
-          onPress: () => {
-            void writeToActiveShell("\u001b");
+          {
+            active: mobileCtrlLatched,
+            label: "Ctrl",
+            onPress: () => {
+              setMobileCtrlLatched((current) => !current);
+              focusTerminal();
+            },
           },
-        },
-      ]
+          {
+            label: "↑",
+            onPress: () => {
+              void writeToActiveShell("\u001b[A");
+            },
+          },
+          {
+            label: "Tab",
+            onPress: () => {
+              void writeToActiveShell("\t");
+            },
+          },
+          {
+            label: "Esc",
+            onPress: () => {
+              void writeToActiveShell("\u001b");
+            },
+          },
+          {
+            label: "Select",
+            onPress: () => {
+              setMobileSelectionMode(true);
+              showMobileActionNotice("Drag to select, then tap Copy");
+            },
+          },
+        ]
     : [];
 
   if (!mobileViewport.isMobile) {
     return (
       <div className="flex h-full min-h-0 flex-col bg-background text-foreground">
-        <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
-          <aside className="border-b border-border/70 bg-card/35 lg:flex lg:w-80 lg:min-w-80 lg:flex-col lg:border-r lg:border-b-0">
-            <div className="space-y-3 p-3 sm:p-4">
-              <section className="space-y-2">
-                <div className="flex items-center justify-between gap-2">
-                  <div>
-                    <p className="text-[11px] font-semibold tracking-[0.18em] text-muted-foreground uppercase">
-                      Project Shells
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      Shells are shared across this project.
-                    </p>
-                  </div>
-                  <Button
-                    size="icon-xs"
-                    variant="outline"
-                    aria-label="Create shell"
-                    onClick={() => {
-                      void createShellAndOpen();
-                    }}
-                  >
-                    <PlusIcon className="size-3.5" />
-                  </Button>
-                </div>
-
-                {collection.shells.length === 0 ? (
-                  <div className="rounded-2xl border border-border/60 bg-background/70 px-3 py-4 text-sm text-muted-foreground">
-                    No shells for this project yet.
-                  </div>
-                ) : (
-                  <div className="flex gap-2 overflow-x-auto pb-1 lg:flex-col lg:overflow-y-auto lg:pb-0">
-                    {collection.shells.map((shell) => (
-                      <DesktopShellListButton
-                        key={shell.id}
-                        createdAt={shell.createdAt}
-                        cwd={shell.cwd}
-                        isActive={shell.id === activeShellId}
-                        isRunning={collection.runningShellIds.includes(shell.id)}
-                        title={shell.title}
-                        onSelect={() => {
-                          void openShell(shell.id);
-                        }}
-                      />
-                    ))}
-                  </div>
-                )}
-              </section>
+        <header className="shrink-0 border-b border-border/70 px-3 py-3 sm:px-4">
+          <div className="flex items-center gap-2">
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                <h1 className="truncate text-sm font-semibold">{project.name}</h1>
+                <Badge variant="outline" className="hidden sm:inline-flex">
+                  {collection.shells.length} {collection.shells.length === 1 ? "Shell" : "Shells"}
+                </Badge>
+              </div>
+              <p className="truncate text-xs text-muted-foreground">
+                {activeShell?.cwd ?? project.cwd}
+              </p>
             </div>
-          </aside>
+            <Button
+              size="xs"
+              variant="outline"
+              title={newShellShortcutLabel ? `New shell (${newShellShortcutLabel})` : "New shell"}
+              onClick={() => {
+                void createShellAndOpen();
+              }}
+            >
+              <PlusIcon className="size-3.5" />
+              <span className="hidden sm:inline">New Shell</span>
+            </Button>
+          </div>
 
-          <main className="flex min-h-0 flex-1 flex-col">
-            <div className="flex items-center justify-between gap-3 border-b border-border/70 px-3 py-3 sm:px-4">
+          <div className="mt-3 space-y-3">
+            {collection.shells.length === 0 ? (
+              <div className="rounded-2xl border border-border/60 bg-background/70 px-3 py-4 text-sm text-muted-foreground">
+                No shells for this project yet.
+              </div>
+            ) : (
+              <div className="flex gap-2 overflow-x-auto pb-1">
+                {collection.shells.map((shell) => (
+                  <DesktopShellTabButton
+                    key={shell.id}
+                    isActive={shell.id === activeShellId}
+                    isRunning={collection.runningShellIds.includes(shell.id)}
+                    title={shell.title}
+                    onSelect={() => {
+                      void openShell(shell.id);
+                    }}
+                  />
+                ))}
+              </div>
+            )}
+
+            <div className="flex items-start justify-between gap-3 rounded-2xl border border-border/70 bg-card/40 px-3 py-3">
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
                   <h2 className="truncate text-sm font-medium">
@@ -1054,6 +1272,11 @@ export default function ProjectShellsView({
                 <p className="truncate text-xs text-muted-foreground">
                   {activeShell?.cwd ?? project.cwd}
                 </p>
+                {activeShell ? (
+                  <p className="mt-1 text-[11px] text-muted-foreground">
+                    Created {formatRelativeTime(activeShell.createdAt)}
+                  </p>
+                ) : null}
               </div>
               <div className="flex items-center gap-2">
                 <Button
@@ -1066,6 +1289,17 @@ export default function ProjectShellsView({
                   }}
                 >
                   <TerminalIcon className="size-3.5" />
+                </Button>
+                <Button
+                  aria-label="Interrupt shell"
+                  disabled={!activeShell}
+                  size="xs"
+                  variant="destructive-outline"
+                  onClick={() => {
+                    void interruptActiveShell();
+                  }}
+                >
+                  Stop
                 </Button>
                 <Button
                   aria-label={
@@ -1089,45 +1323,45 @@ export default function ProjectShellsView({
                 </Button>
               </div>
             </div>
+          </div>
+        </header>
 
-            <div className="min-h-0 flex-1 p-3 sm:p-4">
-              <div className="h-full min-h-[24rem] rounded-2xl border border-border/70 bg-card/40 p-2 shadow-sm">
-                {activeShell ? (
-                  <ShellTerminalViewport
-                    ref={terminalHandleRef}
-                    autoFocus
-                    cwd={activeShell.cwd}
-                    fontSize={terminalFontSize}
-                    isMobile={false}
-                    projectId={project.id}
-                    runtimeEnv={activeShell.env}
-                    selectionMode={false}
-                    shellId={activeShell.id}
-                    transformUserInput={transformUserInput}
-                    onSelectionModeChange={() => undefined}
-                  />
-                ) : (
-                  <div className="flex h-full flex-col items-center justify-center px-6 text-center">
-                    <SquareTerminalIcon className="size-10 text-muted-foreground/35" />
-                    <h2 className="mt-4 text-lg font-semibold">No shells yet</h2>
-                    <p className="mt-2 max-w-sm text-sm text-muted-foreground/70">
-                      Add a shell for {project.name} when you need one.
-                    </p>
-                    <Button
-                      className="mt-5 rounded-xl"
-                      onClick={() => {
-                        void createShellAndOpen();
-                      }}
-                    >
-                      <PlusIcon className="size-4" />
-                      Add shell
-                    </Button>
-                  </div>
-                )}
+        <main className="flex min-h-0 flex-1 flex-col p-3 sm:p-4">
+          <div className="flex min-h-0 flex-1 rounded-2xl border border-border/70 bg-card/40 p-2 shadow-sm">
+            {activeShell ? (
+              <ShellTerminalViewport
+                ref={terminalHandleRef}
+                autoFocus
+                cwd={activeShell.cwd}
+                fontSize={terminalFontSize}
+                isMobile={false}
+                projectId={project.id}
+                runtimeEnv={activeShell.env}
+                selectionMode={false}
+                shellId={activeShell.id}
+                transformUserInput={transformUserInput}
+                onSelectionModeChange={() => undefined}
+              />
+            ) : (
+              <div className="flex flex-1 flex-col items-center justify-center px-6 text-center">
+                <SquareTerminalIcon className="size-10 text-muted-foreground/35" />
+                <h2 className="mt-4 text-lg font-semibold">No shells yet</h2>
+                <p className="mt-2 max-w-sm text-sm text-muted-foreground/70">
+                  Add a shell for {project.name} when you need one.
+                </p>
+                <Button
+                  className="mt-5 rounded-xl"
+                  onClick={() => {
+                    void createShellAndOpen();
+                  }}
+                >
+                  <PlusIcon className="size-4" />
+                  Add shell
+                </Button>
               </div>
-            </div>
-          </main>
-        </div>
+            )}
+          </div>
+        </main>
       </div>
     );
   }
@@ -1208,39 +1442,32 @@ export default function ProjectShellsView({
       </header>
 
       <div className="flex min-h-0 flex-1">
-        <section className="flex min-h-0 flex-1 flex-col">
+        <section
+          className="flex min-h-0 flex-1 flex-col"
+          style={
+            activeShell
+              ? {
+                  paddingBottom: `calc(${MOBILE_ACCESSORY_BAR_HEIGHT} + var(--app-mobile-bottom-nav-height, 0px) + var(--safe-area-inset-bottom))`,
+                }
+              : undefined
+          }
+        >
           <div className="relative flex min-h-0 flex-1 overflow-hidden border border-white/8 bg-card/70 backdrop-blur-sm rounded-none border-r-0 border-l-0 shadow-none">
             {activeShell ? (
-              <>
-                {mobileSelectionMode ? (
-                  <div className="absolute top-3 right-3 z-20">
-                    <Button
-                      className="rounded-none before:rounded-none"
-                      size="xs"
-                      variant="secondary"
-                      onClick={() => {
-                        setMobileSelectionMode(false);
-                        focusTerminal();
-                      }}
-                    >
-                      Done
-                    </Button>
-                  </div>
-                ) : null}
-                <ShellTerminalViewport
-                  ref={terminalHandleRef}
-                  autoFocus={false}
-                  cwd={activeShell.cwd}
-                  fontSize={terminalFontSize}
-                  isMobile
-                  projectId={project.id}
-                  runtimeEnv={activeShell.env}
-                  selectionMode={mobileSelectionMode}
-                  shellId={activeShell.id}
-                  transformUserInput={transformUserInput}
-                  onSelectionModeChange={setMobileSelectionMode}
-                />
-              </>
+              <ShellTerminalViewport
+                ref={terminalHandleRef}
+                autoFocus={false}
+                cwd={activeShell.cwd}
+                fontSize={terminalFontSize}
+                isMobile
+                projectId={project.id}
+                runtimeEnv={activeShell.env}
+                selectionMode={mobileSelectionMode}
+                shellId={activeShell.id}
+                transformUserInput={transformUserInput}
+                onActionFeedback={showMobileActionNotice}
+                onSelectionModeChange={setMobileSelectionMode}
+              />
             ) : (
               <div className="flex flex-1 flex-col items-center justify-center px-6 text-center">
                 <SquareTerminalIcon className="size-10 text-muted-foreground/35" />
@@ -1265,8 +1492,19 @@ export default function ProjectShellsView({
       </div>
 
       {activeShell ? (
-        <div className="shrink-0 bg-background/92 backdrop-blur-xl">
-          <div className="grid grid-cols-5 gap-2 px-3 py-2">
+        <div
+          className="fixed inset-x-0 z-30 border-border/70 border-t bg-background/92 backdrop-blur-xl"
+          style={{
+            bottom:
+              "calc(var(--app-mobile-keyboard-inset) + var(--app-mobile-bottom-nav-height, 0px))",
+          }}
+        >
+          {mobileActionNotice ? (
+            <div className="px-3 pt-2 text-center text-[11px] font-medium text-muted-foreground/80">
+              {mobileActionNotice}
+            </div>
+          ) : null}
+          <div className="turn-chip-strip flex gap-2 overflow-x-auto px-3 py-2 pb-[calc(var(--safe-area-inset-bottom)+0.5rem)]">
             {mobileAccessoryButtons.map((button) => (
               <MobileAccessoryButton
                 key={button.label}
