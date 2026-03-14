@@ -3,6 +3,7 @@ import { createFileRoute, retainSearchParams, useNavigate } from "@tanstack/reac
 import { Suspense, lazy, type ReactNode, useCallback, useEffect } from "react";
 
 import ChatView from "../components/ChatView";
+import { DiffWorkerPoolProvider } from "../components/DiffWorkerPoolProvider";
 import { useComposerDraftStore } from "../composerDraftStore";
 import {
   type DiffRouteSearch,
@@ -155,9 +156,13 @@ const DiffPanelInlineLayout = (props: {
           storageKey: DIFF_INLINE_SIDEBAR_WIDTH_STORAGE_KEY,
         }}
       >
-        <Suspense fallback={<DiffLoadingFallback inline />}>
-          <DiffPanel mode="sidebar" />
-        </Suspense>
+        {diffOpen ? (
+          <DiffWorkerPoolProvider>
+            <Suspense fallback={<DiffLoadingFallback inline />}>
+              <DiffPanel mode="sidebar" />
+            </Suspense>
+          </DiffWorkerPoolProvider>
+        ) : null}
         <SidebarRail />
       </Sidebar>
     </SidebarProvider>
@@ -183,7 +188,11 @@ function ChatThreadRouteView() {
       to: "/$threadId",
       params: { threadId },
       search: (previous) => {
-        return stripDiffSearchParams(previous);
+        const rest = stripDiffSearchParams(previous);
+        return {
+          ...rest,
+          diff: undefined,
+        };
       },
     });
   }, [navigate, threadId]);
@@ -229,9 +238,13 @@ function ChatThreadRouteView() {
         <ChatView key={threadId} threadId={threadId} />
       </SidebarInset>
       <DiffPanelSheet diffOpen={diffOpen} onCloseDiff={closeDiff}>
-        <Suspense fallback={<DiffLoadingFallback inline={false} />}>
-          <DiffPanel mode="sheet" />
-        </Suspense>
+        {diffOpen ? (
+          <DiffWorkerPoolProvider>
+            <Suspense fallback={<DiffLoadingFallback inline={false} />}>
+              <DiffPanel mode="sheet" />
+            </Suspense>
+          </DiffWorkerPoolProvider>
+        ) : null}
       </DiffPanelSheet>
     </>
   );

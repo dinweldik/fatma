@@ -899,23 +899,46 @@ export default function ChatView({ threadId }: ChatViewProps) {
     isComposerApprovalState ||
     pendingUserInputs.length > 0 ||
     (showPlanFollowUpPrompt && activeProposedPlan !== null);
+  const lastSyncedPendingInputRef = useRef<{
+    requestId: string | null;
+    questionId: string | null;
+  } | null>(null);
   useEffect(() => {
-    if (!activePendingProgress) {
+    const nextCustomAnswer = activePendingProgress?.customAnswer;
+    if (typeof nextCustomAnswer !== "string") {
+      lastSyncedPendingInputRef.current = null;
       return;
     }
-    promptRef.current = activePendingProgress.customAnswer;
-    setComposerCursor(activePendingProgress.customAnswer.length);
+    const nextRequestId = activePendingUserInput?.requestId ?? null;
+    const nextQuestionId = activePendingProgress?.activeQuestion?.id ?? null;
+    const questionChanged =
+      lastSyncedPendingInputRef.current?.requestId !== nextRequestId ||
+      lastSyncedPendingInputRef.current?.questionId !== nextQuestionId;
+    const textChangedExternally = promptRef.current !== nextCustomAnswer;
+
+    lastSyncedPendingInputRef.current = {
+      requestId: nextRequestId,
+      questionId: nextQuestionId,
+    };
+
+    if (!questionChanged && !textChangedExternally) {
+      return;
+    }
+
+    promptRef.current = nextCustomAnswer;
+    setComposerCursor(nextCustomAnswer.length);
     setComposerTrigger(
       detectComposerTrigger(
-        activePendingProgress.customAnswer,
-        expandCollapsedComposerCursor(
-          activePendingProgress.customAnswer,
-          activePendingProgress.customAnswer.length,
-        ),
+        nextCustomAnswer,
+        expandCollapsedComposerCursor(nextCustomAnswer, nextCustomAnswer.length),
       ),
     );
     setComposerHighlightedItemId(null);
-  }, [activePendingProgress, activePendingUserInput?.requestId]);
+  }, [
+    activePendingProgress?.activeQuestion?.id,
+    activePendingProgress?.customAnswer,
+    activePendingUserInput?.requestId,
+  ]);
   useEffect(() => {
     attachmentPreviewHandoffByMessageIdRef.current = attachmentPreviewHandoffByMessageId;
   }, [attachmentPreviewHandoffByMessageId]);
@@ -1932,6 +1955,13 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const addComposerImages = useCallback(
     (files: File[]) => {
       if (!activeThreadId || files.length === 0) return;
+      if (pendingUserInputs.length > 0) {
+        toastManager.add({
+          type: "error",
+          title: "Attach images after answering plan questions.",
+        });
+        return;
+      }
 
       const targetThreadId = activeThreadId;
       const acceptedFiles: Array<{ id: string; file: File }> = [];
@@ -2011,7 +2041,13 @@ export default function ChatView({ threadId }: ChatViewProps) {
         });
       pendingStagePromises.add(stagePromise);
     },
-    [activeThreadId, addComposerImagesToDraft, adjustPendingComposerStageCount, setThreadError],
+    [
+      activeThreadId,
+      addComposerImagesToDraft,
+      adjustPendingComposerStageCount,
+      pendingUserInputs.length,
+      setThreadError,
+    ],
   );
 
   const removeComposerImage = useCallback(
@@ -3606,7 +3642,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
                     ) : (
                       <button
                         type="button"
-                        className="flex size-8 items-center justify-center rounded-full bg-rose-500/90 text-white transition-all duration-150 hover:bg-rose-500 hover:scale-105 sm:h-8 sm:w-8"
+                        className="flex size-8 cursor-pointer items-center justify-center rounded-full bg-rose-500/90 text-white transition-all duration-150 hover:bg-rose-500 hover:scale-105 sm:h-8 sm:w-8"
                         onClick={() => void onInterrupt()}
                         aria-label="Stop generation"
                       >

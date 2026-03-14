@@ -1,9 +1,9 @@
 import { TurnId } from "@fatma/contracts";
 
 export interface DiffRouteSearch {
-  diff?: "1";
-  diffTurnId?: TurnId;
-  diffFilePath?: string;
+  diff?: "1" | undefined;
+  diffTurnId?: TurnId | undefined;
+  diffFilePath?: string | undefined;
 }
 
 function isDiffOpenValue(value: unknown): boolean {

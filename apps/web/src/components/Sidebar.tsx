@@ -26,14 +26,10 @@ import { useNavigate, useParams } from "@tanstack/react-router";
 import { useAppSettings } from "../appSettings";
 import { isElectron } from "../env";
 import { APP_BASE_NAME } from "../branding";
+import { isTerminalFocused } from "../lib/terminalFocus";
 import { cn, newCommandId, newProjectId, newThreadId } from "../lib/utils";
 import { useStore } from "../store";
-import {
-  isChatNewLocalShortcut,
-  isChatNewShortcut,
-  resolveShortcutCommand,
-  shortcutLabelForCommand,
-} from "../keybindings";
+import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings";
 import {
   closeAllProjectShells,
   createProjectShell,
@@ -305,8 +301,6 @@ export default function Sidebar({
   const getDraftThread = useComposerDraftStore((store) => store.getDraftThread);
   const shellStateByProjectId = useProjectShellStore((state) => state.shellStateByProjectId);
   const setActiveShell = useProjectShellStore((state) => state.setActiveShell);
-  const setProjectDraftThreadId = useComposerDraftStore((store) => store.setProjectDraftThreadId);
-  const setDraftThreadContext = useComposerDraftStore((store) => store.setDraftThreadContext);
   const clearProjectDraftThreadId = useComposerDraftStore(
     (store) => store.clearProjectDraftThreadId,
   );
@@ -485,10 +479,18 @@ export default function Sidebar({
         envMode?: DraftThreadEnvMode;
       },
     ): Promise<void> => {
+      const {
+        clearProjectDraftThreadId,
+        getDraftThread,
+        getDraftThreadByProjectId,
+        setDraftThreadContext,
+        setProjectDraftThreadId,
+      } = useComposerDraftStore.getState();
       const hasBranchOption = options?.branch !== undefined;
       const hasWorktreePathOption = options?.worktreePath !== undefined;
       const hasEnvModeOption = options?.envMode !== undefined;
       const storedDraftThread = getDraftThreadByProjectId(projectId);
+      const latestActiveDraftThread = routeThreadId ? getDraftThread(routeThreadId) : null;
       if (storedDraftThread) {
         return (async () => {
           if (hasBranchOption || hasWorktreePathOption || hasEnvModeOption) {
@@ -510,8 +512,11 @@ export default function Sidebar({
       }
       clearProjectDraftThreadId(projectId);
 
-      const activeDraftThread = routeThreadId ? getDraftThread(routeThreadId) : null;
-      if (activeDraftThread && routeThreadId && activeDraftThread.projectId === projectId) {
+      if (
+        latestActiveDraftThread &&
+        routeThreadId &&
+        latestActiveDraftThread.projectId === projectId
+      ) {
         if (hasBranchOption || hasWorktreePathOption || hasEnvModeOption) {
           setDraftThreadContext(routeThreadId, {
             ...(hasBranchOption ? { branch: options?.branch ?? null } : {}),
@@ -539,15 +544,7 @@ export default function Sidebar({
         });
       })();
     },
-    [
-      clearProjectDraftThreadId,
-      getDraftThreadByProjectId,
-      navigate,
-      getDraftThread,
-      routeThreadId,
-      setDraftThreadContext,
-      setProjectDraftThreadId,
-    ],
+    [navigate, routeThreadId],
   );
 
   const focusMostRecentThreadForProject = useCallback(
@@ -1022,23 +1019,32 @@ export default function Sidebar({
 
   useEffect(() => {
     const onWindowKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented) return;
+
       const activeThread = routeThreadId
         ? threads.find((thread) => thread.id === routeThreadId)
         : undefined;
       const activeDraftThread = routeThreadId ? getDraftThread(routeThreadId) : null;
-      if (isChatNewLocalShortcut(event, keybindings)) {
-        const projectId =
-          activeThread?.projectId ?? activeDraftThread?.projectId ?? projects[0]?.id;
-        if (!projectId) return;
+      const projectId = activeThread?.projectId ?? activeDraftThread?.projectId ?? projects[0]?.id;
+      if (!projectId) return;
+      const command = resolveShortcutCommand(event, keybindings, {
+        context: {
+          terminalFocus: isTerminalFocused(),
+          terminalOpen: false,
+        },
+      });
+
+      if (command === "chat.newLocal") {
         event.preventDefault();
+        event.stopPropagation();
         void handleNewThread(projectId);
         return;
       }
 
-      if (!isChatNewShortcut(event, keybindings)) return;
-      const projectId = activeThread?.projectId ?? activeDraftThread?.projectId ?? projects[0]?.id;
-      if (!projectId) return;
+      if (command !== "chat.new") return;
+
       event.preventDefault();
+      event.stopPropagation();
       void handleNewThread(projectId, {
         branch: activeThread?.branch ?? activeDraftThread?.branch ?? null,
         worktreePath: activeThread?.worktreePath ?? activeDraftThread?.worktreePath ?? null,

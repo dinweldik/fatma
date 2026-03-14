@@ -2,7 +2,6 @@ import { Outlet, createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect } from "react";
 
 import MobileBottomNav, { mobileBottomNavHeight } from "../components/MobileBottomNav";
-import { DiffWorkerPoolProvider } from "../components/DiffWorkerPoolProvider";
 import ThreadSidebar from "../components/Sidebar";
 import { MobileViewportProvider } from "../mobileViewport";
 import { isElectron } from "../env";
@@ -48,12 +47,10 @@ function ChatRouteLayout() {
           <ThreadSidebar />
         </Sidebar>
       )}
-      <DiffWorkerPoolProvider>
-        <div className="relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-          <Outlet />
-          <MobileBottomNav />
-        </div>
-      </DiffWorkerPoolProvider>
+      <div className="relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+        <Outlet />
+        <MobileBottomNav />
+      </div>
     </SidebarProvider>
   );
 }

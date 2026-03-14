@@ -28,6 +28,7 @@ import {
 } from "../keybindings";
 import { readTextFromClipboard, writeTextToClipboard } from "../lib/clipboard";
 import { serverConfigQueryOptions } from "../lib/serverReactQuery";
+import { isTerminalFocused } from "../lib/terminalFocus";
 import { cn } from "../lib/utils";
 import { useMobileViewport } from "../mobileViewport";
 import { readNativeApi } from "../nativeApi";
@@ -1070,17 +1071,6 @@ export default function ProjectShellsView({
   );
 
   useEffect(() => {
-    const isTerminalFocused = (): boolean => {
-      const activeElement = document.activeElement;
-      if (!(activeElement instanceof HTMLElement)) {
-        return false;
-      }
-      if (activeElement.classList.contains("xterm-helper-textarea")) {
-        return true;
-      }
-      return activeElement.closest(".project-shell-terminal .xterm") !== null;
-    };
-
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented) {
         return;
