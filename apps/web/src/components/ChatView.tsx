@@ -128,6 +128,7 @@ import {
   FolderIcon,
   EllipsisIcon,
   FolderClosedIcon,
+  FolderOpenIcon,
   GitBranchIcon,
   LockIcon,
   LockOpenIcon,
@@ -545,6 +546,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
     activeProjectTool,
     openShells,
     openSourceControl,
+    toggleFiles,
     toggleShells,
     toggleSourceControl,
   } = useProjectToolsNavigation();
@@ -1154,6 +1156,10 @@ export default function ChatView({ threadId }: ChatViewProps) {
     activeProject !== undefined &&
     activeProjectTool === "shells" &&
     activeProjectToolProjectId === activeProject.id;
+  const filesPanelOpen =
+    activeProject !== undefined &&
+    activeProjectTool === "files" &&
+    activeProjectToolProjectId === activeProject.id;
   const openProjectSourceControlView = useCallback(async () => {
     if (!activeProject) return;
     await openSourceControl(activeProject.id);
@@ -1164,6 +1170,12 @@ export default function ChatView({ threadId }: ChatViewProps) {
     }
     await toggleSourceControl(activeProject.id);
   }, [activeProject, toggleSourceControl]);
+  const toggleProjectFilesView = useCallback(async () => {
+    if (!activeProject) {
+      return;
+    }
+    await toggleFiles(activeProject.id);
+  }, [activeProject, toggleFiles]);
   const mobileEdgeSwipeHandlers = useMobileEdgeSwipe({
     enabled: mobileViewport.isMobile,
     rightEnabled: canOpenSourceControl,
@@ -3102,20 +3114,24 @@ export default function ChatView({ threadId }: ChatViewProps) {
       {/* Top bar */}
       <header
         className={cn(
-          "border-b border-border px-2.5 sm:px-5",
           isElectron
-            ? "drag-region flex h-[52px] items-center"
+            ? "drag-region flex h-[52px] items-center border-b border-border px-2.5 sm:px-5"
             : mobileViewport.isMobile
-              ? "pb-2 pt-[calc(var(--safe-area-inset-top)+0.45rem)]"
-              : "py-3",
+              ? "shrink-0 border-b border-border/70 bg-background/78 px-3 py-3 pt-[calc(var(--safe-area-inset-top)+0.75rem)] backdrop-blur-xl"
+              : "border-b border-border px-2.5 py-3 sm:px-5",
         )}
       >
         <ChatHeader
           activeThreadTitle={activeThread.title}
           activeProjectName={activeProject?.name}
           isGitRepo={isGitRepo}
+          isMobile={mobileViewport.isMobile}
+          filesOpen={filesPanelOpen}
           shellsOpen={shellsPanelOpen}
           sourceControlOpen={sourceControlPanelOpen}
+          onToggleFiles={() => {
+            void toggleProjectFilesView();
+          }}
           onToggleSourceControl={() => {
             void toggleProjectSourceControlView();
           }}
@@ -3807,6 +3823,8 @@ export default function ChatView({ threadId }: ChatViewProps) {
 
 interface ChatProjectActionsProps {
   activeProjectName: string | undefined;
+  filesOpen: boolean;
+  onToggleFiles: () => void;
   onToggleShells: () => void;
   onToggleSourceControl: () => void;
   shellsOpen: boolean;
@@ -3816,6 +3834,8 @@ interface ChatProjectActionsProps {
 
 const ChatProjectActions = memo(function ChatProjectActions({
   activeProjectName,
+  filesOpen,
+  onToggleFiles,
   onToggleShells,
   onToggleSourceControl,
   shellsOpen,
@@ -3828,6 +3848,16 @@ const ChatProjectActions = memo(function ChatProjectActions({
 
   return (
     <div className={cn("flex min-w-0 items-center gap-1.5", className)}>
+      <Button
+        size="xs"
+        variant={filesOpen ? "secondary" : "outline"}
+        onClick={onToggleFiles}
+        aria-label="Toggle file explorer"
+        title="Files"
+      >
+        <FolderOpenIcon className="size-3.5" />
+        <span className="sr-only @sm/header-actions:not-sr-only">Files</span>
+      </Button>
       <Button
         size="xs"
         variant={shellsOpen ? "secondary" : "outline"}
@@ -3855,7 +3885,10 @@ const ChatProjectActions = memo(function ChatProjectActions({
 interface ChatHeaderProps {
   activeThreadTitle: string;
   activeProjectName: string | undefined;
+  filesOpen: boolean;
   isGitRepo: boolean;
+  isMobile: boolean;
+  onToggleFiles: () => void;
   onToggleShells: () => void;
   onToggleSourceControl: () => void;
   shellsOpen: boolean;
@@ -3865,12 +3898,31 @@ interface ChatHeaderProps {
 const ChatHeader = memo(function ChatHeader({
   activeThreadTitle,
   activeProjectName,
+  filesOpen,
   isGitRepo,
+  isMobile,
+  onToggleFiles,
   onToggleShells,
   onToggleSourceControl,
   shellsOpen,
   sourceControlOpen,
 }: ChatHeaderProps) {
+  if (isMobile) {
+    return (
+      <div className="min-w-0">
+        <p className="text-[10px] font-semibold tracking-[0.2em] text-muted-foreground/60 uppercase">
+          Chat
+        </p>
+        <h1 className="mt-1 truncate text-base font-semibold">
+          {activeProjectName ?? activeThreadTitle}
+        </h1>
+        <p className="truncate text-xs text-muted-foreground/70">
+          {activeProjectName ? activeThreadTitle : ""}
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div className="flex min-w-0 flex-1 flex-col gap-1.5 sm:flex-row sm:items-center">
       <div className="flex min-w-0 items-center gap-1.5 overflow-hidden sm:flex-1 sm:gap-3">
@@ -3893,8 +3945,10 @@ const ChatHeader = memo(function ChatHeader({
       </div>
       <ChatProjectActions
         activeProjectName={activeProjectName}
+        filesOpen={filesOpen}
         shellsOpen={shellsOpen}
         sourceControlOpen={sourceControlOpen}
+        onToggleFiles={onToggleFiles}
         onToggleSourceControl={onToggleSourceControl}
         onToggleShells={onToggleShells}
         className="@container/header-actions -mx-0.5 hidden min-w-0 overflow-x-auto px-0.5 pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden md:flex md:flex-1 md:justify-end md:gap-2 md:overflow-visible md:px-0 md:pb-0 @sm/header-actions:gap-3"

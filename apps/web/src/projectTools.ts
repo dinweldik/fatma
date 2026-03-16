@@ -3,7 +3,7 @@ import { ProjectId, type ThreadId } from "@fatma/contracts";
 import { getMostRecentThreadIdForProject } from "./selectedChatStore";
 import type { Thread } from "./types";
 
-export type ProjectToolView = "source-control" | "shells";
+export type ProjectToolView = "source-control" | "shells" | "files";
 
 export interface ProjectToolsSearch {
   projectTool?: ProjectToolView | undefined;
@@ -20,7 +20,7 @@ function normalizeSearchString(value: unknown): string | undefined {
 }
 
 function normalizeProjectToolView(value: unknown): ProjectToolView | undefined {
-  if (value === "source-control" || value === "shells") {
+  if (value === "source-control" || value === "shells" || value === "files") {
     return value;
   }
 
@@ -65,16 +65,29 @@ export function resolveProjectToolRoute(input: { projectId: ProjectId; view: Pro
         projectId: ProjectId;
       };
       to: "/shells/$projectId";
-    } {
-  return input.view === "source-control"
-    ? {
-        to: "/source-control/$projectId",
-        params: { projectId: input.projectId },
-      }
-    : {
-        to: "/shells/$projectId",
-        params: { projectId: input.projectId },
+    }
+  | {
+      params: {
+        projectId: ProjectId;
       };
+      to: "/files/$projectId";
+    } {
+  if (input.view === "source-control") {
+    return {
+      to: "/source-control/$projectId",
+      params: { projectId: input.projectId },
+    };
+  }
+  if (input.view === "files") {
+    return {
+      to: "/files/$projectId",
+      params: { projectId: input.projectId },
+    };
+  }
+  return {
+    to: "/shells/$projectId",
+    params: { projectId: input.projectId },
+  };
 }
 
 export function resolveDesktopProjectToolsBaseRoute(input: {

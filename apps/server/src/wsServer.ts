@@ -1058,6 +1058,61 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
         return { relativePath: target.relativePath };
       }
 
+      case WS_METHODS.projectsReadFile: {
+        const body = stripRequestTag(request.body);
+        const target = yield* resolvePathWithinRoot({
+          rootPath: body.rootPath,
+          targetPath: body.filePath,
+          path,
+        });
+        const fileInfo = yield* fileSystem.stat(target.absolutePath).pipe(
+          Effect.mapError(
+            () =>
+              new RouteRequestError({
+                message: "Unable to read file.",
+              }),
+          ),
+        );
+        if (fileInfo.type !== "File") {
+          return yield* new RouteRequestError({
+            message: "Selected path is not a file.",
+          });
+        }
+        const fileSizeNum = Number(fileInfo.size);
+        const MAX_FILE_SIZE = 1024 * 1024; // 1MB
+        if (fileSizeNum > MAX_FILE_SIZE) {
+          return {
+            path: target.absolutePath,
+            contents: "",
+            size: fileSizeNum,
+            isBinary: true,
+          };
+        }
+        const contents = yield* fileSystem
+          .readFileString(target.absolutePath)
+          .pipe(
+            Effect.catch(() =>
+              Effect.succeed(null),
+            ),
+          );
+        if (contents === null) {
+          return {
+            path: target.absolutePath,
+            contents: "",
+            size: fileSizeNum,
+            isBinary: true,
+          };
+        }
+        // Check for binary content (null bytes)
+        const isBinary = contents.includes("\0");
+        return {
+          path: target.absolutePath,
+          contents: isBinary ? "" : contents,
+          size: fileSizeNum,
+          isBinary,
+        };
+      }
+
       case WS_METHODS.shellOpenInEditor: {
         const body = stripRequestTag(request.body);
         return yield* openInEditor(body);

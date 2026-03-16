@@ -2,6 +2,7 @@ import { ProjectId, ThreadId } from "@fatma/contracts";
 import { useNavigate, useParams, useRouterState } from "@tanstack/react-router";
 import {
   FolderKanbanIcon,
+  FolderOpenIcon,
   GitBranchIcon,
   MessageSquareTextIcon,
   TerminalSquareIcon,
@@ -100,8 +101,9 @@ export default function MobileBottomNav() {
   const projectsIsActive = pathname.startsWith("/projects") || pathname.startsWith("/settings");
   const sourceControlIsActive = pathname.startsWith("/source-control/");
   const shellIsActive = pathname.startsWith("/shells/");
+  const filesIsActive = pathname.startsWith("/files/");
   const chatIsActive =
-    pathname === "/" || (!projectsIsActive && !shellIsActive && !sourceControlIsActive);
+    pathname === "/" || (!projectsIsActive && !shellIsActive && !sourceControlIsActive && !filesIsActive);
   const canOpenProjectTabs = navigationProjectId !== null;
 
   return (
@@ -163,6 +165,24 @@ export default function MobileBottomNav() {
         >
           <GitBranchIcon className={cn("size-4", iconClass(sourceControlIsActive))} />
           <span>Source</span>
+        </button>
+        <button
+          type="button"
+          disabled={!canOpenProjectTabs}
+          className={cn(
+            "flex min-h-12 flex-1 flex-col items-center justify-center gap-1 rounded-[1rem] px-2 text-[11px] font-medium transition-colors duration-150 hover:bg-accent hover:text-foreground disabled:opacity-40",
+            filesIsActive ? "bg-accent text-foreground" : "text-muted-foreground",
+          )}
+          onClick={() => {
+            if (!navigationProjectId) return;
+            void navigate({
+              to: "/files/$projectId",
+              params: { projectId: navigationProjectId },
+            });
+          }}
+        >
+          <FolderOpenIcon className={cn("size-4", iconClass(filesIsActive))} />
+          <span>Files</span>
         </button>
         <button
           type="button"

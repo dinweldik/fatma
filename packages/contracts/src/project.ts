@@ -48,6 +48,20 @@ export const ProjectBrowseDirectoryResult = Schema.Struct({
 });
 export type ProjectBrowseDirectoryResult = typeof ProjectBrowseDirectoryResult.Type;
 
+export const ProjectReadFileInput = Schema.Struct({
+  rootPath: TrimmedNonEmptyString,
+  filePath: TrimmedNonEmptyString,
+});
+export type ProjectReadFileInput = typeof ProjectReadFileInput.Type;
+
+export const ProjectReadFileResult = Schema.Struct({
+  path: TrimmedNonEmptyString,
+  contents: Schema.String,
+  size: Schema.Number,
+  isBinary: Schema.Boolean,
+});
+export type ProjectReadFileResult = typeof ProjectReadFileResult.Type;
+
 export const ProjectCreateDirectoryInput = Schema.Struct({
   rootPath: TrimmedNonEmptyString,
   parentPath: TrimmedNonEmptyString,

@@ -45,6 +45,7 @@ import {
 import { type Project } from "../types";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
+import TerminalActionBar from "./TerminalActionBar";
 
 const EMPTY_KEYBINDINGS: ResolvedKeybindingsConfig = [];
 const DESKTOP_TERMINAL_FONT_SIZE = 12;
@@ -1079,6 +1080,13 @@ export default function ProjectShellsView({
               </div>
             )}
           </div>
+          {activeShell && !mobileSelectionMode ? (
+            <TerminalActionBar
+              onSend={(data) => {
+                void writeToActiveShell(data);
+              }}
+            />
+          ) : null}
         </section>
       </div>
     </div>

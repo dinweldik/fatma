@@ -97,6 +97,13 @@ export function useProjectToolsNavigation() {
     ],
   );
 
+  const openFiles = useCallback(
+    async (projectId: ProjectId) => {
+      await openProjectTool({ projectId, view: "files" });
+    },
+    [openProjectTool],
+  );
+
   const openShells = useCallback(
     async (projectId: ProjectId) => {
       await openProjectTool({ projectId, view: "shells" });
@@ -109,6 +116,13 @@ export function useProjectToolsNavigation() {
       await openProjectTool({ projectId, view: "source-control" });
     },
     [openProjectTool],
+  );
+
+  const toggleFiles = useCallback(
+    async (projectId: ProjectId) => {
+      await toggleProjectTool({ projectId, view: "files" });
+    },
+    [toggleProjectTool],
   );
 
   const toggleShells = useCallback(
@@ -129,10 +143,12 @@ export function useProjectToolsNavigation() {
     activeProjectId: activeProjectTools.projectToolProjectId ?? null,
     activeProjectTool: activeProjectTools.projectTool ?? null,
     closeProjectTool,
+    openFiles,
     openProjectTool,
     openShells,
     openSourceControl,
     surfaceMode,
+    toggleFiles,
     toggleProjectTool,
     toggleShells,
     toggleSourceControl,
