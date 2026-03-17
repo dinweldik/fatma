@@ -3121,24 +3121,24 @@ export default function ChatView({ threadId }: ChatViewProps) {
               : "border-b border-border px-2.5 py-3 sm:px-5",
         )}
       >
-        <ChatHeader
-          activeThreadTitle={activeThread.title}
-          activeProjectName={activeProject?.name}
-          isGitRepo={isGitRepo}
-          isMobile={mobileViewport.isMobile}
-          filesOpen={filesPanelOpen}
-          shellsOpen={shellsPanelOpen}
-          sourceControlOpen={sourceControlPanelOpen}
-          onToggleFiles={() => {
-            void toggleProjectFilesView();
-          }}
-          onToggleSourceControl={() => {
-            void toggleProjectSourceControlView();
-          }}
-          onToggleShells={() => {
-            void toggleProjectShellView();
-          }}
-        />
+        {mobileViewport.isMobile ? (
+          <MobileChatHeader
+            activeThreadTitle={activeThread.title}
+            activeProjectName={activeProject?.name}
+          />
+        ) : (
+          <DesktopChatHeader
+            activeThreadTitle={activeThread.title}
+            activeProjectName={activeProject?.name}
+            isGitRepo={isGitRepo}
+            filesOpen={filesPanelOpen}
+            shellsOpen={shellsPanelOpen}
+            sourceControlOpen={sourceControlPanelOpen}
+            onToggleFiles={toggleProjectFilesView}
+            onToggleSourceControl={toggleProjectSourceControlView}
+            onToggleShells={toggleProjectShellView}
+          />
+        )}
       </header>
 
       {/* Error banner */}
@@ -3882,12 +3882,35 @@ const ChatProjectActions = memo(function ChatProjectActions({
   );
 });
 
-interface ChatHeaderProps {
+const MobileChatHeader = memo(function MobileChatHeader({
+  activeThreadTitle,
+  activeProjectName,
+}: {
+  activeThreadTitle: string;
+  activeProjectName: string | undefined;
+}) {
+  return (
+    <div className="min-w-0">
+      <p className="text-[10px] font-semibold tracking-[0.2em] text-muted-foreground/60 uppercase">
+        Chat
+      </p>
+      <h1 className="mt-1 truncate text-base font-semibold">
+        {activeProjectName ?? activeThreadTitle}
+      </h1>
+      {activeProjectName && (
+        <p className="truncate text-xs text-muted-foreground/70">
+          {activeThreadTitle}
+        </p>
+      )}
+    </div>
+  );
+});
+
+interface DesktopChatHeaderProps {
   activeThreadTitle: string;
   activeProjectName: string | undefined;
   filesOpen: boolean;
   isGitRepo: boolean;
-  isMobile: boolean;
   onToggleFiles: () => void;
   onToggleShells: () => void;
   onToggleSourceControl: () => void;
@@ -3895,34 +3918,17 @@ interface ChatHeaderProps {
   sourceControlOpen: boolean;
 }
 
-const ChatHeader = memo(function ChatHeader({
+const DesktopChatHeader = memo(function DesktopChatHeader({
   activeThreadTitle,
   activeProjectName,
   filesOpen,
   isGitRepo,
-  isMobile,
   onToggleFiles,
   onToggleShells,
   onToggleSourceControl,
   shellsOpen,
   sourceControlOpen,
-}: ChatHeaderProps) {
-  if (isMobile) {
-    return (
-      <div className="min-w-0">
-        <p className="text-[10px] font-semibold tracking-[0.2em] text-muted-foreground/60 uppercase">
-          Chat
-        </p>
-        <h1 className="mt-1 truncate text-base font-semibold">
-          {activeProjectName ?? activeThreadTitle}
-        </h1>
-        <p className="truncate text-xs text-muted-foreground/70">
-          {activeProjectName ? activeThreadTitle : ""}
-        </p>
-      </div>
-    );
-  }
-
+}: DesktopChatHeaderProps) {
   return (
     <div className="flex min-w-0 flex-1 flex-col gap-1.5 sm:flex-row sm:items-center">
       <div className="flex min-w-0 items-center gap-1.5 overflow-hidden sm:flex-1 sm:gap-3">
