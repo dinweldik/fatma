@@ -1090,11 +1090,7 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
         }
         const contents = yield* fileSystem
           .readFileString(target.absolutePath)
-          .pipe(
-            Effect.catch(() =>
-              Effect.succeed(null),
-            ),
-          );
+          .pipe(Effect.catch(() => Effect.succeed(null)));
         if (contents === null) {
           return {
             path: target.absolutePath,
@@ -1227,6 +1223,9 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
         const body = stripRequestTag(request.body);
         return yield* terminalManager.close(body);
       }
+
+      case WS_METHODS.serverPing:
+        return { ok: true as const };
 
       case WS_METHODS.serverGetConfig:
         const keybindingsConfig = yield* keybindingsManager.loadConfigState;

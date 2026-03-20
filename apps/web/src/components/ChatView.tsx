@@ -3898,9 +3898,7 @@ const MobileChatHeader = memo(function MobileChatHeader({
         {activeProjectName ?? activeThreadTitle}
       </h1>
       {activeProjectName && (
-        <p className="truncate text-xs text-muted-foreground/70">
-          {activeThreadTitle}
-        </p>
+        <p className="truncate text-xs text-muted-foreground/70">{activeThreadTitle}</p>
       )}
     </div>
   );

@@ -1,12 +1,45 @@
-import { WS_CHANNELS } from "@fatma/contracts";
+import { WS_CHANNELS, WS_METHODS } from "@fatma/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { WsTransport } from "./wsTransport";
 
 type WsEventType = "open" | "message" | "close" | "error";
-type WsListener = (event?: { data?: unknown }) => void;
+type WsListener = (event?: { data?: unknown; type?: string }) => void;
+type EventListener = (event?: { type: string }) => void;
 
 const sockets: MockWebSocket[] = [];
+
+class MockEventTarget {
+  private readonly listeners = new Map<string, Set<EventListener>>();
+
+  addEventListener(type: string, listener: EventListener) {
+    const listeners = this.listeners.get(type) ?? new Set<EventListener>();
+    listeners.add(listener);
+    this.listeners.set(type, listeners);
+  }
+
+  removeEventListener(type: string, listener: EventListener) {
+    const listeners = this.listeners.get(type);
+    listeners?.delete(listener);
+    if (listeners?.size === 0) {
+      this.listeners.delete(type);
+    }
+  }
+
+  dispatch(type: string) {
+    const listeners = this.listeners.get(type);
+    if (!listeners) {
+      return;
+    }
+    for (const listener of listeners) {
+      listener({ type });
+    }
+  }
+
+  reset() {
+    this.listeners.clear();
+  }
+}
 
 class MockWebSocket {
   static readonly CONNECTING = 0;
@@ -48,7 +81,7 @@ class MockWebSocket {
     this.emit("message", { data });
   }
 
-  private emit(type: WsEventType, event?: { data?: unknown }) {
+  private emit(type: WsEventType, event?: { data?: unknown; type?: string }) {
     const listeners = this.listeners.get(type);
     if (!listeners) return;
     for (const listener of listeners) {
@@ -58,23 +91,56 @@ class MockWebSocket {
 }
 
 const originalWebSocket = globalThis.WebSocket;
+const windowTarget = new MockEventTarget();
+const documentTarget = new MockEventTarget();
 
-function getSocket(): MockWebSocket {
-  const socket = sockets.at(-1);
+function getSocket(index = -1): MockWebSocket {
+  const socket = sockets.at(index);
   if (!socket) {
     throw new Error("Expected a websocket instance");
   }
   return socket;
 }
 
+function emitWindowEvent(type: "focus" | "online") {
+  windowTarget.dispatch(type);
+}
+
+function emitVisibilityChange(visibilityState: "visible" | "hidden") {
+  Object.defineProperty(globalThis.document, "visibilityState", {
+    configurable: true,
+    value: visibilityState,
+  });
+  documentTarget.dispatch("visibilitychange");
+}
+
 beforeEach(() => {
   sockets.length = 0;
+  vi.useRealTimers();
+  windowTarget.reset();
+  documentTarget.reset();
 
   Object.defineProperty(globalThis, "window", {
     configurable: true,
     value: {
       location: { protocol: "http:", host: "localhost:3020", hostname: "localhost", port: "3020" },
       desktopBridge: undefined,
+      addEventListener: windowTarget.addEventListener.bind(windowTarget),
+      removeEventListener: windowTarget.removeEventListener.bind(windowTarget),
+    },
+  });
+  Object.defineProperty(globalThis, "document", {
+    configurable: true,
+    value: {
+      visibilityState: "visible",
+      addEventListener: documentTarget.addEventListener.bind(documentTarget),
+      removeEventListener: documentTarget.removeEventListener.bind(documentTarget),
+    },
+  });
+  Object.defineProperty(globalThis, "navigator", {
+    configurable: true,
+    value: {
+      onLine: true,
     },
   });
 
@@ -84,6 +150,7 @@ beforeEach(() => {
 afterEach(() => {
   globalThis.WebSocket = originalWebSocket;
   vi.restoreAllMocks();
+  vi.useRealTimers();
 });
 
 describe("WsTransport", () => {
@@ -199,6 +266,8 @@ describe("WsTransport", () => {
           port: "",
         },
         desktopBridge: undefined,
+        addEventListener: windowTarget.addEventListener.bind(windowTarget),
+        removeEventListener: windowTarget.removeEventListener.bind(windowTarget),
       },
     });
 
@@ -220,6 +289,8 @@ describe("WsTransport", () => {
           port: "5733",
         },
         desktopBridge: undefined,
+        addEventListener: windowTarget.addEventListener.bind(windowTarget),
+        removeEventListener: windowTarget.removeEventListener.bind(windowTarget),
       },
     });
 
@@ -241,6 +312,8 @@ describe("WsTransport", () => {
           port: "5000",
         },
         desktopBridge: undefined,
+        addEventListener: windowTarget.addEventListener.bind(windowTarget),
+        removeEventListener: windowTarget.removeEventListener.bind(windowTarget),
       },
     });
 
@@ -269,6 +342,87 @@ describe("WsTransport", () => {
     );
 
     await expect(requestPromise).resolves.toEqual({ projects: [] });
+    transport.dispose();
+  });
+
+  it("emits reconnect state and listeners when a closed socket reconnects", async () => {
+    vi.useFakeTimers();
+
+    const transport = new WsTransport("ws://localhost:3020");
+    const states: string[] = [];
+    const onReconnect = vi.fn();
+
+    transport.onStateChange((state) => states.push(state), { replayCurrent: true });
+    transport.onReconnect(onReconnect);
+
+    const socket = getSocket();
+    socket.open();
+    socket.close();
+
+    expect(states).toContain("reconnecting");
+
+    await vi.advanceTimersByTimeAsync(500);
+    const nextSocket = getSocket();
+    expect(nextSocket).not.toBe(socket);
+
+    nextSocket.open();
+
+    expect(onReconnect).toHaveBeenCalledTimes(1);
+    expect(states.at(-1)).toBe("open");
+
+    transport.dispose();
+  });
+
+  it("forces a reconnect on app resume after the connection has gone idle", async () => {
+    vi.useFakeTimers();
+
+    const transport = new WsTransport("ws://localhost:3020");
+    const socket = getSocket();
+    socket.open();
+
+    await vi.advanceTimersByTimeAsync(5_001);
+    emitWindowEvent("focus");
+
+    const nextSocket = getSocket();
+    expect(nextSocket).not.toBe(socket);
+
+    transport.dispose();
+  });
+
+  it("probes stale open sockets and reconnects when the probe times out", async () => {
+    vi.useFakeTimers();
+
+    const transport = new WsTransport("ws://localhost:3020");
+    const socket = getSocket();
+    socket.open();
+
+    await vi.advanceTimersByTimeAsync(45_000);
+    const pingEnvelope = JSON.parse(socket.sent.at(-1) ?? "{}") as {
+      body?: { _tag?: string };
+    };
+    expect(pingEnvelope.body?._tag).toBe(WS_METHODS.serverPing);
+
+    await vi.advanceTimersByTimeAsync(8_000);
+    const nextSocket = getSocket();
+    expect(nextSocket).not.toBe(socket);
+
+    transport.dispose();
+  });
+
+  it("reconnects immediately when the app becomes visible after being backgrounded", async () => {
+    vi.useFakeTimers();
+
+    const transport = new WsTransport("ws://localhost:3020");
+    const socket = getSocket();
+    socket.open();
+
+    emitVisibilityChange("hidden");
+    await vi.advanceTimersByTimeAsync(5_001);
+    emitVisibilityChange("visible");
+
+    const nextSocket = getSocket();
+    expect(nextSocket).not.toBe(socket);
+
     transport.dispose();
   });
 });

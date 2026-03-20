@@ -236,8 +236,8 @@ function Sidebar({
             style={
               {
                 height:
-                  "calc(var(--app-mobile-viewport-height) - var(--app-mobile-bottom-nav-height, 0px))",
-                marginBottom: "var(--app-mobile-bottom-nav-height, 0px)",
+                  "calc(var(--app-mobile-viewport-height) - var(--app-mobile-bottom-dock-height, 0px))",
+                marginBottom: "var(--app-mobile-bottom-dock-height, 0px)",
                 "--sidebar-width": SIDEBAR_WIDTH_MOBILE,
               } as React.CSSProperties
             }

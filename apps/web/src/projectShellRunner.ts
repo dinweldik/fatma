@@ -1,4 +1,4 @@
-import { type ProjectId, type ProjectScript } from "@fatma/contracts";
+import { DEFAULT_TERMINAL_ID, type ProjectId, type ProjectScript } from "@fatma/contracts";
 
 import { readNativeApi } from "./nativeApi";
 import { type Project } from "./types";
@@ -91,6 +91,27 @@ export async function closeAllProjectShells(projectId: ProjectId): Promise<void>
       .catch(() => undefined);
     useProjectShellStore.getState().removeShell(projectId, shell.id);
   }
+}
+
+export async function writeToProjectShell(
+  projectId: ProjectId,
+  shellId: string,
+  data: string,
+): Promise<void> {
+  const api = readNativeApi();
+  if (!api) {
+    throw new Error("Native API is unavailable.");
+  }
+
+  await api.terminal.write({
+    threadId: projectShellRuntimeThreadId(projectId, shellId),
+    terminalId: DEFAULT_TERMINAL_ID,
+    data,
+  });
+}
+
+export async function interruptProjectShell(projectId: ProjectId, shellId: string): Promise<void> {
+  await writeToProjectShell(projectId, shellId, "\u0003");
 }
 
 async function openProjectShellSession(

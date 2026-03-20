@@ -37,16 +37,22 @@ import {
   ensureProjectShell,
 } from "../projectShellRunner";
 import { useProjectShellStore, selectProjectShellCollection } from "../projectShellStore";
-import { type Thread } from "../types";
-import { derivePendingApprovals } from "../session-logic";
 import { gitStatusQueryOptions } from "../lib/gitReactQuery";
 import { serverConfigQueryOptions } from "../lib/serverReactQuery";
 import { readNativeApi } from "../nativeApi";
 import { useComposerDraftStore } from "../composerDraftStore";
+import { useThreadSelectionStore } from "../threadSelectionStore";
 import { onServerWelcome } from "../wsNativeApi";
 import { filterProjectBrowserEntries, isHiddenProjectBrowserEntry } from "../projectBrowserEntries";
 import { useProjectToolsNavigation } from "../useProjectToolsNavigation";
 import { toastManager } from "./ui/toast";
+import {
+  buildProjectThreadLists,
+  buildThreadsByProjectId,
+  compareThreadsByCreatedAtDescending,
+  findNewestThread,
+  resolveSidebarThreadState,
+} from "./Sidebar.logic";
 import {
   getDesktopUpdateActionError,
   getDesktopUpdateButtonTooltip,
@@ -120,13 +126,6 @@ function isProjectDeleteBlockedByActiveThreads(message: string): boolean {
   return message.includes("cannot be deleted while it still has");
 }
 
-interface ThreadStatusPill {
-  label: "Working" | "Connecting" | "Completed" | "Pending Approval";
-  colorClass: string;
-  dotClass: string;
-  pulse: boolean;
-}
-
 interface PrStatusIndicator {
   label: "PR open" | "PR closed" | "PR merged";
   colorClass: string;
@@ -135,57 +134,6 @@ interface PrStatusIndicator {
 }
 
 type ThreadPr = GitStatusResult["pr"];
-
-function hasUnseenCompletion(thread: Thread): boolean {
-  if (!thread.latestTurn?.completedAt) return false;
-  const completedAt = Date.parse(thread.latestTurn.completedAt);
-  if (Number.isNaN(completedAt)) return false;
-  if (!thread.lastVisitedAt) return true;
-
-  const lastVisitedAt = Date.parse(thread.lastVisitedAt);
-  if (Number.isNaN(lastVisitedAt)) return true;
-  return completedAt > lastVisitedAt;
-}
-
-function threadStatusPill(thread: Thread, hasPendingApprovals: boolean): ThreadStatusPill | null {
-  if (hasPendingApprovals) {
-    return {
-      label: "Pending Approval",
-      colorClass: "text-amber-600 dark:text-amber-300/90",
-      dotClass: "bg-amber-500 dark:bg-amber-300/90",
-      pulse: false,
-    };
-  }
-
-  if (thread.session?.status === "running") {
-    return {
-      label: "Working",
-      colorClass: "text-sky-600 dark:text-sky-300/80",
-      dotClass: "bg-sky-500 dark:bg-sky-300/80",
-      pulse: true,
-    };
-  }
-
-  if (thread.session?.status === "connecting") {
-    return {
-      label: "Connecting",
-      colorClass: "text-sky-600 dark:text-sky-300/80",
-      dotClass: "bg-sky-500 dark:bg-sky-300/80",
-      pulse: true,
-    };
-  }
-
-  if (hasUnseenCompletion(thread)) {
-    return {
-      label: "Completed",
-      colorClass: "text-emerald-600 dark:text-emerald-300/90",
-      dotClass: "bg-emerald-500 dark:bg-emerald-300/90",
-      pulse: false,
-    };
-  }
-
-  return null;
-}
 
 function prStatusIndicator(pr: ThreadPr): PrStatusIndicator | null {
   if (!pr) return null;
@@ -294,6 +242,10 @@ export default function Sidebar({
   const threads = useStore((store) => store.threads);
   const markThreadUnread = useStore((store) => store.markThreadUnread);
   const toggleProject = useStore((store) => store.toggleProject);
+  const optimisticallyRemoveThread = useStore((store) => store.optimisticallyRemoveThread);
+  const restoreRemovedThread = useStore((store) => store.restoreRemovedThread);
+  const optimisticallyRemoveProject = useStore((store) => store.optimisticallyRemoveProject);
+  const restoreRemovedProject = useStore((store) => store.restoreRemovedProject);
   const clearComposerDraftForThread = useComposerDraftStore((store) => store.clearThreadDraft);
   const getDraftThreadByProjectId = useComposerDraftStore(
     (store) => store.getDraftThreadByProjectId,
@@ -344,13 +296,24 @@ export default function Sidebar({
   const renamingCommittedRef = useRef(false);
   const renamingInputRef = useRef<HTMLInputElement | null>(null);
   const [desktopUpdateState, setDesktopUpdateState] = useState<DesktopUpdateState | null>(null);
-  const pendingApprovalByThreadId = useMemo(() => {
-    const map = new Map<ThreadId, boolean>();
+  const threadSidebarStateById = useMemo(() => {
+    const map = new Map<ThreadId, ReturnType<typeof resolveSidebarThreadState>>();
     for (const thread of threads) {
-      map.set(thread.id, derivePendingApprovals(thread.activities).length > 0);
+      map.set(thread.id, resolveSidebarThreadState(thread));
     }
     return map;
   }, [threads]);
+  const threadsByProjectId = useMemo(() => buildThreadsByProjectId(threads), [threads]);
+  const projectThreadLists = useMemo(
+    () =>
+      buildProjectThreadLists({
+        projectIds: projects.map((project) => project.id),
+        previewLimit: THREAD_PREVIEW_LIMIT,
+        expandedProjectIds: expandedThreadListsByProject,
+        threadsByProjectId,
+      }),
+    [expandedThreadListsByProject, projects, threadsByProjectId],
+  );
   const projectCwdById = useMemo(
     () => new Map(projects.map((project) => [project.id, project.cwd] as const)),
     [projects],
@@ -519,13 +482,7 @@ export default function Sidebar({
 
   const focusMostRecentThreadForProject = useCallback(
     (projectId: ProjectId) => {
-      const latestThread = threads
-        .filter((thread) => thread.projectId === projectId)
-        .toSorted((a, b) => {
-          const byDate = new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-          if (byDate !== 0) return byDate;
-          return b.id.localeCompare(a.id);
-        })[0];
+      const latestThread = findNewestThread(threadsByProjectId.get(projectId) ?? []);
       if (!latestThread) return;
 
       void navigate({
@@ -533,7 +490,7 @@ export default function Sidebar({
         params: { threadId: latestThread.id },
       });
     },
-    [navigate, threads],
+    [navigate, threadsByProjectId],
   );
 
   const addProjectFromPath = useCallback(
@@ -762,8 +719,12 @@ export default function Sidebar({
           return;
         }
       }
+      const fallbackThreadId =
+        threads
+          .filter((entry) => entry.id !== threadId)
+          .toSorted(compareThreadsByCreatedAtDescending)[0]?.id ?? null;
       if (thread.session && thread.session.status !== "closed") {
-        await api.orchestration
+        void api.orchestration
           .dispatchCommand({
             type: "thread.session.stop",
             commandId: newCommandId(),
@@ -772,25 +733,11 @@ export default function Sidebar({
           })
           .catch(() => undefined);
       }
-
-      try {
-        await api.terminal.close({
-          threadId,
-          deleteHistory: true,
-        });
-      } catch {
-        // Terminal may already be closed
-      }
-
       const shouldNavigateToFallback = routeThreadId === threadId;
-      const fallbackThreadId = threads.find((entry) => entry.id !== threadId)?.id ?? null;
-      await api.orchestration.dispatchCommand({
-        type: "thread.delete",
-        commandId: newCommandId(),
-        threadId,
-      });
-      clearComposerDraftForThread(threadId);
-      clearProjectDraftThreadById(thread.projectId, thread.id);
+      const removedThread = optimisticallyRemoveThread(threadId);
+      if (removedThread) {
+        useThreadSelectionStore.getState().removeFromSelection([threadId]);
+      }
       if (shouldNavigateToFallback) {
         if (fallbackThreadId) {
           void navigate({
@@ -802,6 +749,30 @@ export default function Sidebar({
           void navigate({ to: "/", replace: true });
         }
       }
+
+      void api.terminal
+        .close({
+          threadId,
+          deleteHistory: true,
+        })
+        .catch(() => undefined);
+
+      try {
+        await api.orchestration.dispatchCommand({
+          type: "thread.delete",
+          commandId: newCommandId(),
+          threadId,
+        });
+        clearComposerDraftForThread(threadId);
+        clearProjectDraftThreadById(thread.projectId, thread.id);
+      } catch (error) {
+        restoreRemovedThread(removedThread);
+        toastManager.add({
+          type: "error",
+          title: `Failed to delete "${thread.title}"`,
+          description: error instanceof Error ? error.message : "An error occurred.",
+        });
+      }
     },
     [
       appSettings.confirmThreadDelete,
@@ -809,6 +780,8 @@ export default function Sidebar({
       clearProjectDraftThreadById,
       markThreadUnread,
       navigate,
+      optimisticallyRemoveThread,
+      restoreRemovedThread,
       routeThreadId,
       threads,
     ],
@@ -826,27 +799,65 @@ export default function Sidebar({
 
       const project = projects.find((entry) => entry.id === projectId);
       if (!project) return;
+      const projectThreads = projectThreadLists.get(projectId)?.allThreads ?? [];
+      if (projectThreads.length > 0) {
+        toastManager.add({
+          type: "warning",
+          title: "Project is not empty",
+          description: "Delete all threads in this project before deleting it.",
+        });
+        return;
+      }
 
       const confirmed = await api.dialogs.confirm(
         [`Delete project "${project.name}"?`, "This action cannot be undone."].join("\n"),
       );
       if (!confirmed) return;
 
-      try {
-        await closeAllProjectShells(projectId).catch(() => undefined);
-        const projectDraftThread = getDraftThreadByProjectId(projectId);
-        if (projectDraftThread) {
-          clearComposerDraftForThread(projectDraftThread.threadId);
+      const projectDraftThread = getDraftThreadByProjectId(projectId);
+      const activeThreadProjectId =
+        (routeThreadId ? threads.find((thread) => thread.id === routeThreadId)?.projectId : null) ??
+        (routeThreadId ? getDraftThread(routeThreadId)?.projectId : null);
+      const shouldNavigateToFallback =
+        activeThreadProjectId === projectId || routeProjectShell.projectId === projectId;
+      const fallbackThreadId =
+        threads
+          .filter((thread) => thread.projectId !== projectId)
+          .toSorted(compareThreadsByCreatedAtDescending)[0]?.id ?? null;
+      const removedProject = optimisticallyRemoveProject(projectId);
+      if (removedProject) {
+        useThreadSelectionStore
+          .getState()
+          .removeFromSelection(
+            removedProject.removedThreads.map((removedThread) => removedThread.thread.id),
+          );
+      }
+      if (shouldNavigateToFallback) {
+        if (fallbackThreadId) {
+          void navigate({
+            to: "/$threadId",
+            params: { threadId: fallbackThreadId },
+            replace: true,
+          });
+        } else {
+          void navigate({ to: "/", replace: true });
         }
-        clearProjectDraftThreadId(projectId);
+      }
+
+      try {
+        void closeAllProjectShells(projectId).catch(() => undefined);
         await api.orchestration.dispatchCommand({
           type: "project.delete",
           commandId: newCommandId(),
           projectId,
         });
+        if (projectDraftThread) {
+          clearComposerDraftForThread(projectDraftThread.threadId);
+        }
+        clearProjectDraftThreadId(projectId);
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unknown error deleting project.";
-        console.error("Failed to remove project", { projectId, error });
+        restoreRemovedProject(removedProject);
         if (isProjectDeleteBlockedByActiveThreads(message)) {
           toastManager.add({
             type: "warning",
@@ -862,7 +873,20 @@ export default function Sidebar({
         });
       }
     },
-    [clearComposerDraftForThread, clearProjectDraftThreadId, getDraftThreadByProjectId, projects],
+    [
+      clearComposerDraftForThread,
+      clearProjectDraftThreadId,
+      getDraftThread,
+      getDraftThreadByProjectId,
+      navigate,
+      optimisticallyRemoveProject,
+      projectThreadLists,
+      projects,
+      restoreRemovedProject,
+      routeProjectShell.projectId,
+      routeThreadId,
+      threads,
+    ],
   );
 
   const openProjectShell = useCallback(
@@ -1232,20 +1256,12 @@ export default function Sidebar({
         <SidebarGroup className={cn("px-2 py-2", isMobile && "px-3 py-3")}>
           <SidebarMenu>
             {projects.map((project) => {
-              const projectThreads = threads
-                .filter((thread) => thread.projectId === project.id)
-                .toSorted((a, b) => {
-                  const byDate = new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-                  if (byDate !== 0) return byDate;
-                  return b.id.localeCompare(a.id);
-                });
+              const projectThreadList = projectThreadLists.get(project.id);
+              const projectThreads = projectThreadList?.allThreads ?? [];
               const projectShells = selectProjectShellCollection(shellStateByProjectId, project.id);
-              const isThreadListExpanded = expandedThreadListsByProject.has(project.id);
-              const hasHiddenThreads = projectThreads.length > THREAD_PREVIEW_LIMIT;
-              const visibleThreads =
-                hasHiddenThreads && !isThreadListExpanded
-                  ? projectThreads.slice(0, THREAD_PREVIEW_LIMIT)
-                  : projectThreads;
+              const isThreadListExpanded = projectThreadList?.isExpanded ?? false;
+              const hasHiddenThreads = projectThreadList?.hasHiddenThreads ?? false;
+              const visibleThreads = projectThreadList?.visibleThreads ?? [];
 
               return (
                 <Collapsible
@@ -1354,10 +1370,8 @@ export default function Sidebar({
                       >
                         {visibleThreads.map((thread) => {
                           const isActive = routeThreadId === thread.id;
-                          const threadStatus = threadStatusPill(
-                            thread,
-                            pendingApprovalByThreadId.get(thread.id) === true,
-                          );
+                          const threadStatus =
+                            threadSidebarStateById.get(thread.id)?.statusPill ?? null;
                           const prStatus = prStatusIndicator(prByThreadId.get(thread.id) ?? null);
 
                           return (

@@ -8,13 +8,7 @@ import { Sidebar, SidebarRail } from "./ui/sidebar";
 const PROJECT_TOOLS_SIDEBAR_MIN_WIDTH = 24 * 16;
 const PROJECT_TOOLS_SIDEBAR_WIDTH_STORAGE_KEY = "chat_project_tools_sidebar_width";
 
-function ProjectToolContent({
-  project,
-  view,
-}: {
-  project: Project;
-  view: ProjectToolView;
-}) {
+function ProjectToolContent({ project, view }: { project: Project; view: ProjectToolView }) {
   if (view === "source-control") {
     return <ProjectSourceControlView gitCwd={project.cwd} project={project} />;
   }

@@ -96,6 +96,7 @@ export const WS_METHODS = {
   terminalClose: "terminal.close",
 
   // Server meta
+  serverPing: "server.ping",
   serverGetConfig: "server.getConfig",
   serverUpsertKeybinding: "server.upsertKeybinding",
   serverUpdateTelegramNotifications: "server.updateTelegramNotifications",
@@ -170,6 +171,7 @@ const WebSocketRequestBody = Schema.Union([
   tagRequestBody(WS_METHODS.terminalClose, TerminalCloseInput),
 
   // Server meta
+  tagRequestBody(WS_METHODS.serverPing, Schema.Struct({})),
   tagRequestBody(WS_METHODS.serverGetConfig, Schema.Struct({})),
   tagRequestBody(WS_METHODS.serverUpsertKeybinding, KeybindingRule),
   tagRequestBody(

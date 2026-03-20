@@ -1,11 +1,12 @@
 import "../index.css";
 
-import { type NativeApi, ProjectId } from "@fatma/contracts";
+import { type NativeApi, ProjectId, type TerminalEvent } from "@fatma/contracts";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { page } from "vitest/browser";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 
+import { useProjectShellMobileConsoleStore } from "../projectShellMobileConsoleStore";
 import { useProjectShellStore } from "../projectShellStore";
 import type { Project } from "../types";
 import ProjectShellsView from "./ProjectShellsView";
@@ -13,9 +14,49 @@ import ProjectShellsView from "./ProjectShellsView";
 const navigateMock = vi.fn();
 const terminalOpenMock = vi.fn();
 const terminalWriteMock = vi.fn();
-const terminalResizeMock = vi.fn();
 const terminalCloseMock = vi.fn();
 let currentNativeApi: NativeApi;
+let terminalEventListener: ((event: TerminalEvent) => void) | null = null;
+let currentMobileViewport = {
+  isKeyboardOpen: false,
+  isMobile: true,
+  keyboardInset: 0,
+  viewportHeight: 932,
+};
+
+vi.mock("@xterm/addon-fit", () => ({
+  FitAddon: class MockFitAddon {
+    fit = vi.fn();
+  },
+}));
+
+vi.mock("@xterm/xterm", () => ({
+  Terminal: class MockTerminal {
+    attachCustomKeyEventHandler = vi.fn();
+    blur = vi.fn();
+    buffer = {
+      active: {
+        baseY: 0,
+        getLine: vi.fn(() => null),
+        viewportY: 0,
+      },
+    };
+    clear = vi.fn();
+    cols = 80;
+    dispose = vi.fn();
+    focus = vi.fn();
+    loadAddon = vi.fn();
+    onData = vi.fn(() => ({ dispose: vi.fn() }));
+    open = vi.fn();
+    options = {};
+    refresh = vi.fn();
+    registerLinkProvider = vi.fn(() => ({ dispose: vi.fn() }));
+    rows = 24;
+    scrollToBottom = vi.fn();
+    textarea = document.createElement("textarea");
+    write = vi.fn();
+  },
+}));
 
 vi.mock("@tanstack/react-router", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@tanstack/react-router")>();
@@ -26,12 +67,7 @@ vi.mock("@tanstack/react-router", async (importOriginal) => {
 });
 
 vi.mock("../mobileViewport", () => ({
-  useMobileViewport: () => ({
-    isKeyboardOpen: false,
-    isMobile: true,
-    keyboardInset: 0,
-    viewportHeight: 932,
-  }),
+  useMobileViewport: () => currentMobileViewport,
 }));
 
 vi.mock("../nativeApi", () => ({
@@ -44,7 +80,7 @@ const SHELL_ID = "shell-mobile-1";
 const PROJECT: Project = {
   id: PROJECT_ID,
   name: "Mobile Shell Project",
-  cwd: "/repo/mobile-shell",
+  cwd: "/root/fatma/apps/server",
   model: "gpt-5",
   expanded: true,
   scripts: [],
@@ -91,16 +127,23 @@ function createNativeApi(): NativeApi {
     terminal: {
       open: terminalOpenMock,
       write: terminalWriteMock,
-      resize: terminalResizeMock,
+      resize: vi.fn(),
       clear: vi.fn(),
       restart: vi.fn(),
       close: terminalCloseMock,
-      onEvent: vi.fn(() => () => undefined),
+      onEvent: vi.fn((listener) => {
+        terminalEventListener = listener;
+        return () => {
+          if (terminalEventListener === listener) {
+            terminalEventListener = null;
+          }
+        };
+      }),
     },
     server: {
       getConfig: vi.fn(async () => ({
-        cwd: "/repo/mobile-shell",
-        keybindingsConfigPath: "/repo/mobile-shell/.fatma-keybindings.json",
+        cwd: PROJECT.cwd,
+        keybindingsConfigPath: `${PROJECT.cwd}/.fatma-keybindings.json`,
         keybindings: [],
         issues: [],
         providers: [],
@@ -134,27 +177,9 @@ async function setViewport(): Promise<void> {
   await nextFrame();
 }
 
-async function waitForButton(label: string): Promise<HTMLButtonElement> {
-  let button: HTMLButtonElement | null = null;
-  await vi.waitFor(
-    () => {
-      button =
-        Array.from(document.querySelectorAll("button")).find(
-          (entry) => entry.textContent?.trim() === label,
-        ) ?? null;
-      expect(button, `Unable to find "${label}" button`).toBeTruthy();
-    },
-    { timeout: 5_000, interval: 16 },
-  );
-
-  if (!button) {
-    throw new Error(`Unable to find "${label}" button`);
-  }
-
-  return button;
-}
-
-async function mountView(): Promise<{ cleanup: () => Promise<void> }> {
+async function mountView(): Promise<{
+  cleanup: () => Promise<void>;
+}> {
   const host = document.createElement("div");
   host.style.position = "fixed";
   host.style.inset = "0";
@@ -174,7 +199,7 @@ async function mountView(): Promise<{ cleanup: () => Promise<void> }> {
   await vi.waitFor(
     () => {
       expect(terminalOpenMock).toHaveBeenCalled();
-      expect(host.querySelector(".project-shell-terminal")).toBeTruthy();
+      expect(document.querySelector('textarea[aria-label="Shell output"]')).toBeTruthy();
     },
     { timeout: 5_000, interval: 16 },
   );
@@ -191,27 +216,37 @@ async function mountView(): Promise<{ cleanup: () => Promise<void> }> {
 describe("ProjectShellsView mobile shell", () => {
   beforeEach(async () => {
     document.body.innerHTML = "";
+    document.documentElement.style.setProperty("--app-mobile-bottom-dock-height", "60px");
     localStorage.clear();
     navigateMock.mockReset();
     terminalOpenMock.mockReset();
     terminalWriteMock.mockReset();
-    terminalResizeMock.mockReset();
     terminalCloseMock.mockReset();
+    terminalEventListener = null;
+    currentMobileViewport = {
+      isKeyboardOpen: false,
+      isMobile: true,
+      keyboardInset: 0,
+      viewportHeight: 932,
+    };
     terminalOpenMock.mockResolvedValue({
-      threadId: "project-shell:project-mobile-shell:shell-mobile-1",
+      threadId: `project-shell:${PROJECT_ID}:${SHELL_ID}`,
       terminalId: "default",
       cwd: PROJECT.cwd,
       status: "running",
       pid: 1234,
-      history: "$ printf 'hello'\r\nhello\r\n",
+      history:
+        "root@vscode:~/fatma/apps/server# printf 'hello'\r\nhello\r\nroot@vscode:~/fatma/apps/server# ",
       exitCode: null,
       exitSignal: null,
-      updatedAt: "2026-03-13T12:00:00.000Z",
+      updatedAt: "2026-03-20T12:00:00.000Z",
     });
     terminalWriteMock.mockResolvedValue(undefined);
-    terminalResizeMock.mockResolvedValue(undefined);
     terminalCloseMock.mockResolvedValue(undefined);
     currentNativeApi = createNativeApi();
+    useProjectShellMobileConsoleStore.setState({
+      consoleStateByProjectId: {},
+    });
     useProjectShellStore.setState({
       shellStateByProjectId: {
         [PROJECT_ID]: {
@@ -222,7 +257,7 @@ describe("ProjectShellsView mobile shell", () => {
             {
               id: SHELL_ID,
               title: "Shell 1",
-              createdAt: "2026-03-13T12:00:00.000Z",
+              createdAt: "2026-03-20T12:00:00.000Z",
               cwd: PROJECT.cwd,
               env: {},
             },
@@ -235,56 +270,60 @@ describe("ProjectShellsView mobile shell", () => {
 
   afterEach(() => {
     document.body.innerHTML = "";
+    document.documentElement.style.removeProperty("--app-mobile-bottom-dock-height");
   });
 
-  it("renders the simplified mobile shell controls and sends stop", async () => {
+  it("renders mobile shell output with the current prompt label", async () => {
     const mounted = await mountView();
 
     try {
-      await (await waitForButton("Stop")).click();
-
       await vi.waitFor(
         () => {
-          expect(terminalWriteMock).toHaveBeenCalledWith(
-            expect.objectContaining({ data: "\u0003" }),
+          const shellLayout = document.querySelector<HTMLElement>('[data-shell-layout="mobile"]');
+          const output = document.querySelector<HTMLTextAreaElement>(
+            'textarea[aria-label="Shell output"]',
           );
+          expect(shellLayout).toBeTruthy();
+          expect(getComputedStyle(shellLayout!).paddingBottom).toBe("60px");
+          expect(output?.value).toBe(
+            "root@vscode:~/fatma/apps/server# printf 'hello'\nhello\nroot@vscode:~/fatma/apps/server# ",
+          );
+          expect(
+            useProjectShellMobileConsoleStore.getState().consoleStateByProjectId[PROJECT_ID]
+              ?.promptText,
+          ).toBe("root@vscode:~/fatma/apps/server# ");
         },
         { timeout: 5_000, interval: 16 },
       );
-
-      expect(document.body.textContent).not.toContain("Paste");
-      expect(document.body.textContent).not.toContain("Ctrl");
-      expect(document.body.textContent).not.toContain("Tab");
-      expect(document.body.textContent).not.toContain("Esc");
     } finally {
       await mounted.cleanup();
     }
   });
 
-  it("toggles native selection mode from the header", async () => {
+  it("live-updates output and prompt state", async () => {
     const mounted = await mountView();
 
     try {
-      await (await waitForButton("Select")).click();
+      terminalEventListener?.({
+        createdAt: "2026-03-20T12:01:00.000Z",
+        data: "cd /tmp\r\nroot@vscode:/tmp# ",
+        terminalId: "default",
+        threadId: `project-shell:${PROJECT_ID}:${SHELL_ID}`,
+        type: "output",
+      });
 
       await vi.waitFor(
         () => {
+          const output = document.querySelector<HTMLTextAreaElement>(
+            'textarea[aria-label="Shell output"]',
+          );
+          expect(output?.value).toBe(
+            "root@vscode:~/fatma/apps/server# printf 'hello'\nhello\nroot@vscode:~/fatma/apps/server# cd /tmp\nroot@vscode:/tmp# ",
+          );
           expect(
-            document.querySelector(".project-shell-terminal")?.getAttribute("data-selection-mode"),
-          ).toBe("true");
-          expect(document.body.textContent).toContain("Done");
-        },
-        { timeout: 5_000, interval: 16 },
-      );
-
-      await (await waitForButton("Done")).click();
-
-      await vi.waitFor(
-        () => {
-          expect(
-            document.querySelector(".project-shell-terminal")?.getAttribute("data-selection-mode"),
-          ).toBe("false");
-          expect(document.body.textContent).toContain("Select");
+            useProjectShellMobileConsoleStore.getState().consoleStateByProjectId[PROJECT_ID]
+              ?.promptText,
+          ).toBe("root@vscode:/tmp# ");
         },
         { timeout: 5_000, interval: 16 },
       );

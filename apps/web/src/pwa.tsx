@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from "react";
 
+import { subscribeToAppResume } from "./appResumeSignals";
 import { isElectron } from "./env";
 import { toastManager } from "./components/ui/toast";
 
@@ -24,6 +25,7 @@ interface BeforeInstallPromptEvent extends Event {
 
 interface PwaVersionPayload {
   appVersion: string;
+  appBuildId?: string;
 }
 
 interface PwaContextValue {
@@ -42,7 +44,9 @@ interface PwaContextValue {
 }
 
 const APP_VERSION = __APP_VERSION__;
+const APP_BUILD_ID = __APP_BUILD_ID__;
 const UPDATE_CHECK_INTERVAL_MS = 5 * 60 * 1000;
+const SERVICE_WORKER_URL = `/sw.js?v=${encodeURIComponent(APP_BUILD_ID)}`;
 
 const DEFAULT_PWA_CONTEXT: PwaContextValue = {
   canInstall: false,
@@ -98,7 +102,7 @@ function resolveStandaloneMatch(): boolean {
   );
 }
 
-async function fetchLatestPwaVersion(): Promise<string | null> {
+async function fetchLatestPwaVersion(): Promise<PwaVersionPayload | null> {
   const response = await fetch("/pwa-version.json", {
     cache: "no-store",
     headers: {
@@ -109,9 +113,15 @@ async function fetchLatestPwaVersion(): Promise<string | null> {
     throw new Error(`Failed to fetch PWA version (${response.status}).`);
   }
   const payload = (await response.json()) as Partial<PwaVersionPayload>;
-  return typeof payload.appVersion === "string" && payload.appVersion.trim().length > 0
-    ? payload.appVersion
-    : null;
+  if (typeof payload.appVersion !== "string" || payload.appVersion.trim().length === 0) {
+    return null;
+  }
+  return {
+    appVersion: payload.appVersion,
+    ...(typeof payload.appBuildId === "string" && payload.appBuildId.trim().length > 0
+      ? { appBuildId: payload.appBuildId }
+      : {}),
+  };
 }
 
 function resolveSupportDetails(params: { isDevelopment: boolean; isSupported: boolean }): string {
@@ -143,6 +153,7 @@ export function PwaProvider(props: { readonly children: ReactNode }) {
   const [isCheckingForUpdates, setIsCheckingForUpdates] = useState(false);
   const [isInstalled, setIsInstalled] = useState(() => resolveStandaloneMatch());
   const [latestVersion, setLatestVersion] = useState<string | null>(null);
+  const [latestBuildId, setLatestBuildId] = useState<string | null>(null);
   const [updateAvailable, setUpdateAvailable] = useState(false);
   const updateToastShownRef = useRef(false);
   const isApplyingUpdateRef = useRef(false);
@@ -164,11 +175,14 @@ export function PwaProvider(props: { readonly children: ReactNode }) {
     try {
       const nextRegistration = registration;
       await nextRegistration?.update();
-      const nextLatestVersion = await fetchLatestPwaVersion();
+      const nextVersionPayload = await fetchLatestPwaVersion();
+      const nextLatestVersion = nextVersionPayload?.appVersion ?? null;
+      const nextLatestBuildId = nextVersionPayload?.appBuildId ?? nextLatestVersion;
       setLatestVersion(nextLatestVersion);
+      setLatestBuildId(nextLatestBuildId);
       setUpdateAvailable(
         nextRegistration?.waiting != null ||
-          (nextLatestVersion !== null && nextLatestVersion !== APP_VERSION),
+          (nextLatestBuildId !== null && nextLatestBuildId !== APP_BUILD_ID),
       );
     } catch {
       // Keep the existing install/update state and retry later.
@@ -212,7 +226,7 @@ export function PwaProvider(props: { readonly children: ReactNode }) {
 
     const registerServiceWorker = async () => {
       try {
-        const nextRegistration = await navigator.serviceWorker.register("/sw.js", {
+        const nextRegistration = await navigator.serviceWorker.register(SERVICE_WORKER_URL, {
           scope: "/",
         });
         if (disposed) {
@@ -322,24 +336,15 @@ export function PwaProvider(props: { readonly children: ReactNode }) {
     const intervalId = window.setInterval(() => {
       void checkForUpdates();
     }, UPDATE_CHECK_INTERVAL_MS);
-    const onVisibilityChange = () => {
-      if (document.visibilityState !== "visible") {
-        return;
-      }
+    const unsubscribeAppResume = subscribeToAppResume(() => {
       void checkForUpdates();
-    };
-    const onFocus = () => {
-      void checkForUpdates();
-    };
+    });
 
     void checkForUpdates();
-    document.addEventListener("visibilitychange", onVisibilityChange);
-    window.addEventListener("focus", onFocus);
 
     return () => {
       window.clearInterval(intervalId);
-      document.removeEventListener("visibilitychange", onVisibilityChange);
-      window.removeEventListener("focus", onFocus);
+      unsubscribeAppResume();
     };
   }, [checkForUpdates, isSupported]);
 
@@ -357,7 +362,7 @@ export function PwaProvider(props: { readonly children: ReactNode }) {
       type: "info",
       title: "Web app update available",
       description:
-        latestVersion && latestVersion !== APP_VERSION
+        latestVersion && latestBuildId !== APP_BUILD_ID
           ? `Version ${latestVersion} is ready. Reload the installed app shell to switch to it.`
           : "A fresh web app shell is ready. Reload to update the installed version.",
       actionProps: {
@@ -367,7 +372,7 @@ export function PwaProvider(props: { readonly children: ReactNode }) {
         },
       },
     });
-  }, [applyUpdate, latestVersion, updateAvailable]);
+  }, [applyUpdate, latestBuildId, latestVersion, updateAvailable]);
 
   const value = useMemo<PwaContextValue>(
     () => ({

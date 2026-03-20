@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { execSync } from "node:child_process";
 
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
@@ -8,6 +9,40 @@ const webPackageJson = JSON.parse(
   readFileSync(new URL("./package.json", import.meta.url), "utf8"),
 ) as { version: string };
 const appVersion = webPackageJson.version;
+
+function resolveAppBuildId(version: string): string {
+  const explicitBuildId = process.env.FATMA_BUILD_ID?.trim();
+  if (explicitBuildId) {
+    return explicitBuildId;
+  }
+
+  const commitFromEnv =
+    process.env.VERCEL_GIT_COMMIT_SHA?.trim() ||
+    process.env.GITHUB_SHA?.trim() ||
+    process.env.SOURCE_VERSION?.trim() ||
+    process.env.GIT_COMMIT?.trim();
+  if (commitFromEnv) {
+    return `${version}+${commitFromEnv.slice(0, 12)}`;
+  }
+
+  try {
+    const gitCommit = execSync("git rev-parse --short=12 HEAD", {
+      cwd: process.cwd(),
+      stdio: ["ignore", "pipe", "ignore"],
+    })
+      .toString("utf8")
+      .trim();
+    if (gitCommit.length > 0) {
+      return `${version}+${gitCommit}`;
+    }
+  } catch {
+    // Fall back to the package version when git metadata is unavailable.
+  }
+
+  return version;
+}
+
+const appBuildId = resolveAppBuildId(appVersion);
 
 const port = Number(process.env.PORT ?? 5774);
 const host = process.env.FATMA_HOST?.trim() || "localhost";
@@ -42,7 +77,7 @@ function emitPwaVersion(): Plugin {
       this.emitFile({
         type: "asset",
         fileName: "pwa-version.json",
-        source: `${JSON.stringify({ appVersion }, null, 2)}\n`,
+        source: `${JSON.stringify({ appBuildId, appVersion }, null, 2)}\n`,
       });
     },
   };
@@ -66,6 +101,7 @@ export default defineConfig({
     // In dev mode, tell the web app where the WebSocket server lives
     "import.meta.env.VITE_WS_URL": JSON.stringify(process.env.VITE_WS_URL ?? ""),
     __APP_VERSION__: JSON.stringify(appVersion),
+    __APP_BUILD_ID__: JSON.stringify(appBuildId),
     "import.meta.env.APP_VERSION": JSON.stringify(appVersion),
   },
   resolve: {

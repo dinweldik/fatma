@@ -64,6 +64,7 @@
 :root {
   color-scheme: light;
   --app-mobile-keyboard-inset: 0px;
+  --app-mobile-bottom-dock-height: 0px;
   --app-mobile-bottom-nav-height: 0px;
   --app-mobile-viewport-height: 100dvh;
   --safe-area-inset-top: env(safe-area-inset-top, 0px);
@@ -193,6 +194,9 @@ body {
   .project-shell-terminal[data-mobile="true"] .xterm-viewport {
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
+    padding-bottom: 0.5rem;
+    scroll-padding-bottom: 0.5rem;
+    scrollbar-width: thin;
   }
 
   .project-shell-terminal[data-mobile="true"] .xterm .xterm-accessibility {
@@ -304,6 +308,21 @@ input {
 
 .app-mobile-viewport {
   height: var(--app-mobile-viewport-height, 100dvh);
+}
+
+.project-shell-mobile-layout {
+  padding-bottom: calc(
+    var(--app-mobile-bottom-dock-height, 0px) + var(--project-shell-mobile-prompt-clearance, 0px)
+  );
+}
+
+.project-shell-mobile-stage,
+.project-shell-mobile-terminal-stack {
+  min-height: 0;
+}
+
+.project-shell-mobile-terminal-stack {
+  isolation: isolate;
 }
 
 /* Terminal drawer scrollbar parity with chat */

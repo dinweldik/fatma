@@ -1,3 +1,20 @@
+const APP_VERSION = new URL(self.location.href).searchParams.get("v") ?? "dev";
+const APP_SHELL_CACHE = `fatma-app-shell-${APP_VERSION}`;
+const STATIC_ASSET_CACHE = `fatma-static-assets-${APP_VERSION}`;
+const APP_SHELL_URL = "/";
+const PRECACHE_URLS = [
+  APP_SHELL_URL,
+  "/manifest.webmanifest",
+  "/favicon.ico",
+  "/favicon-16x16.png",
+  "/favicon-32x32.png",
+  "/icon-192.png",
+  "/icon-512.png",
+  "/apple-touch-icon.png",
+];
+const STATIC_ASSET_DESTINATIONS = new Set(["style", "script", "worker", "font", "image"]);
+const DYNAMIC_PATH_PREFIXES = ["/api/", "/attachments/"];
+
 self.addEventListener("install", (event) => {
   event.waitUntil(precacheAppShell());
 });
@@ -28,7 +45,11 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  if (requestUrl.pathname === "/pwa-version.json" || requestUrl.pathname === "/sw.js") {
+  if (
+    requestUrl.pathname === "/pwa-version.json" ||
+    requestUrl.pathname === "/sw.js" ||
+    DYNAMIC_PATH_PREFIXES.some((prefix) => requestUrl.pathname.startsWith(prefix))
+  ) {
     return;
   }
 
@@ -42,20 +63,6 @@ self.addEventListener("fetch", (event) => {
   }
 });
 
-const APP_SHELL_CACHE = "fatma-app-shell-v3";
-const APP_SHELL_URL = "/";
-const PRECACHE_URLS = [
-  APP_SHELL_URL,
-  "/manifest.webmanifest",
-  "/favicon.ico",
-  "/favicon-16x16.png",
-  "/favicon-32x32.png",
-  "/icon-192.png",
-  "/icon-512.png",
-  "/apple-touch-icon.png",
-];
-const STATIC_ASSET_DESTINATIONS = new Set(["style", "script", "worker", "font", "image"]);
-
 async function precacheAppShell() {
   const cache = await caches.open(APP_SHELL_CACHE);
   await cache.addAll(PRECACHE_URLS);
@@ -65,7 +72,7 @@ async function cleanupAndClaimClients() {
   const cacheKeys = await caches.keys();
   await Promise.all(
     cacheKeys
-      .filter((cacheKey) => cacheKey !== APP_SHELL_CACHE)
+      .filter((cacheKey) => !cacheKey.endsWith(APP_VERSION))
       .map((cacheKey) => caches.delete(cacheKey)),
   );
   await self.clients.claim();
@@ -94,26 +101,28 @@ async function handleNavigationRequest(request) {
 }
 
 async function handleStaticAssetRequest(request) {
-  const cache = await caches.open(APP_SHELL_CACHE);
+  const cache = await caches.open(STATIC_ASSET_CACHE);
   const cachedResponse = await cache.match(request);
 
-  const networkResponsePromise = fetch(request)
-    .then(async (response) => {
-      if (isCacheableResponse(response)) {
-        await cache.put(request, response.clone());
-      }
-      return response;
-    })
-    .catch(() => null);
-
   if (cachedResponse) {
+    void refreshStaticAsset(cache, request);
     return cachedResponse;
   }
 
-  const networkResponse = await networkResponsePromise;
-  if (networkResponse) {
-    return networkResponse;
+  const networkResponse = await fetch(request);
+  if (isCacheableResponse(networkResponse)) {
+    await cache.put(request, networkResponse.clone());
   }
+  return networkResponse;
+}
 
-  throw new Error(`Unable to load ${request.url}`);
+async function refreshStaticAsset(cache, request) {
+  try {
+    const response = await fetch(request);
+    if (isCacheableResponse(response)) {
+      await cache.put(request, response.clone());
+    }
+  } catch {
+    // Keep the cached asset and retry on the next request.
+  }
 }

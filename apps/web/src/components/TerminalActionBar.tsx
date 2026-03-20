@@ -35,14 +35,11 @@ function ActionButton(props: {
 }) {
   const pressedRef = useRef(false);
 
-  const handleTouchStart = useCallback(
-    (event: React.TouchEvent) => {
-      event.preventDefault();
-      event.stopPropagation();
-      pressedRef.current = true;
-    },
-    [],
-  );
+  const handleTouchStart = useCallback((event: React.TouchEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+    pressedRef.current = true;
+  }, []);
 
   const handleTouchEnd = useCallback(
     (event: React.TouchEvent) => {
@@ -100,7 +97,6 @@ export default function TerminalActionBar({
         className,
       )}
     >
-      {/* Row 1: Modifier keys + page navigation */}
       <div className="flex gap-1.5">
         <ActionButton label="Tab" onPress={() => send("tab")}>
           Tab
@@ -122,7 +118,6 @@ export default function TerminalActionBar({
           </ActionButton>
         ) : null}
       </div>
-      {/* Row 2: Arrow keys + Enter */}
       <div className="flex gap-1.5">
         <ActionButton compact label="Left arrow" onPress={() => send("left")}>
           <ArrowLeftIcon className="size-3.5" />

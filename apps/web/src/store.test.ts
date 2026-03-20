@@ -1,14 +1,40 @@
 import {
   DEFAULT_MODEL_BY_PROVIDER,
+  EventId,
   ProjectId,
   ThreadId,
   TurnId,
+  type OrchestrationEvent,
   type OrchestrationReadModel,
 } from "@fatma/contracts";
 import { describe, expect, it } from "vitest";
 
-import { markThreadUnread, reorderProjects, syncServerReadModel, type AppState } from "./store";
+import {
+  applyIncrementalOrchestrationEvent,
+  markThreadUnread,
+  removeProjectOptimistically,
+  removeThreadOptimistically,
+  reorderProjects,
+  restoreRemovedProject,
+  restoreRemovedThread,
+  syncServerReadModel,
+  type AppState,
+} from "./store";
 import { DEFAULT_INTERACTION_MODE, DEFAULT_RUNTIME_MODE, type Thread } from "./types";
+
+function makeProject(
+  overrides: Partial<AppState["projects"][number]> = {},
+): AppState["projects"][number] {
+  return {
+    id: ProjectId.makeUnsafe("project-1"),
+    name: "Project",
+    cwd: "/tmp/project",
+    model: "gpt-5-codex",
+    expanded: true,
+    scripts: [],
+    ...overrides,
+  };
+}
 
 function makeThread(overrides: Partial<Thread> = {}): Thread {
   return {
@@ -35,16 +61,7 @@ function makeThread(overrides: Partial<Thread> = {}): Thread {
 
 function makeState(thread: Thread): AppState {
   return {
-    projects: [
-      {
-        id: ProjectId.makeUnsafe("project-1"),
-        name: "Project",
-        cwd: "/tmp/project",
-        model: "gpt-5-codex",
-        expanded: true,
-        scripts: [],
-      },
-    ],
+    projects: [makeProject()],
     threads: [thread],
     threadsHydrated: true,
   };
@@ -187,6 +204,115 @@ describe("store pure functions", () => {
     const next = reorderProjects(state, project1, project3);
 
     expect(next.projects.map((project) => project.id)).toEqual([project2, project3, project1]);
+  });
+
+  it("removes and restores a thread optimistically without losing order", () => {
+    const thread1 = makeThread({
+      id: ThreadId.makeUnsafe("thread-1"),
+      createdAt: "2026-02-13T00:00:00.000Z",
+    });
+    const thread2 = makeThread({
+      id: ThreadId.makeUnsafe("thread-2"),
+      createdAt: "2026-02-14T00:00:00.000Z",
+    });
+    const state: AppState = {
+      projects: [makeProject()],
+      threads: [thread1, thread2],
+      threadsHydrated: true,
+    };
+
+    const { nextState, removedThread } = removeThreadOptimistically(state, thread1.id);
+    expect(nextState.threads.map((thread) => thread.id)).toEqual([thread2.id]);
+
+    const restored = restoreRemovedThread(nextState, removedThread);
+    expect(restored.threads.map((thread) => thread.id)).toEqual([thread1.id, thread2.id]);
+  });
+
+  it("does not restore a removed thread after its project is gone", () => {
+    const initialState = makeState(makeThread());
+    const { nextState, removedThread } = removeThreadOptimistically(
+      initialState,
+      ThreadId.makeUnsafe("thread-1"),
+    );
+
+    const restored = restoreRemovedThread(
+      { ...nextState, projects: [], threadsHydrated: true },
+      removedThread,
+    );
+
+    expect(restored.threads).toEqual([]);
+  });
+
+  it("removes and restores a project with all of its threads optimistically", () => {
+    const project1 = makeProject({ id: ProjectId.makeUnsafe("project-1") });
+    const project2 = makeProject({
+      id: ProjectId.makeUnsafe("project-2"),
+      name: "Project 2",
+      cwd: "/tmp/project-2",
+    });
+    const thread1 = makeThread({
+      id: ThreadId.makeUnsafe("thread-1"),
+      projectId: project1.id,
+    });
+    const thread2 = makeThread({
+      id: ThreadId.makeUnsafe("thread-2"),
+      projectId: project2.id,
+    });
+    const state: AppState = {
+      projects: [project1, project2],
+      threads: [thread1, thread2],
+      threadsHydrated: true,
+    };
+
+    const { nextState, removedProject } = removeProjectOptimistically(state, project1.id);
+    expect(nextState.projects.map((project) => project.id)).toEqual([project2.id]);
+    expect(nextState.threads.map((thread) => thread.id)).toEqual([thread2.id]);
+
+    const restored = restoreRemovedProject(nextState, removedProject);
+    expect(restored.projects.map((project) => project.id)).toEqual([project1.id, project2.id]);
+    expect(restored.threads.map((thread) => thread.id)).toEqual([thread1.id, thread2.id]);
+  });
+
+  it("applies common orchestration events incrementally", () => {
+    const initialState: AppState = {
+      projects: [makeProject()],
+      threads: [],
+      threadsHydrated: true,
+    };
+    const threadId = ThreadId.makeUnsafe("thread-1");
+    const event = {
+      type: "thread.created",
+      sequence: 1,
+      eventId: EventId.makeUnsafe("event-1"),
+      aggregateId: threadId,
+      aggregateKind: "thread",
+      occurredAt: "2026-03-09T10:00:00.000Z",
+      commandId: null,
+      causationEventId: null,
+      correlationId: null,
+      metadata: {},
+      payload: {
+        threadId,
+        projectId: ProjectId.makeUnsafe("project-1"),
+        title: "Created from event",
+        model: "gpt-5-codex",
+        runtimeMode: DEFAULT_RUNTIME_MODE,
+        interactionMode: DEFAULT_INTERACTION_MODE,
+        branch: null,
+        worktreePath: null,
+        createdAt: "2026-03-09T10:00:00.000Z",
+        updatedAt: "2026-03-09T10:00:00.000Z",
+      },
+    } satisfies OrchestrationEvent;
+
+    const result = applyIncrementalOrchestrationEvent(initialState, event);
+
+    expect(result.handled).toBe(true);
+    expect(result.state.threads[0]).toMatchObject({
+      id: threadId,
+      title: "Created from event",
+      projectId: ProjectId.makeUnsafe("project-1"),
+    });
   });
 });
 

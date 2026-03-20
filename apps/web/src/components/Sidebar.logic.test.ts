@@ -1,9 +1,16 @@
+import { ProjectId, ThreadId } from "@fatma/contracts";
 import { describe, expect, it } from "vitest";
 
 import {
+  buildProjectThreadLists,
+  buildThreadsByProjectId,
+  findNewestThread,
   hasUnseenCompletion,
+  resolveSidebarThreadState,
   resolveThreadStatusPill,
+  compareThreadsByCreatedAtDescending,
   shouldClearThreadSelectionOnMouseDown,
+  visibleThreadsForProject,
 } from "./Sidebar.logic";
 
 function makeLatestTurn(overrides?: {
@@ -152,5 +159,134 @@ describe("resolveThreadStatusPill", () => {
         hasPendingUserInput: false,
       }),
     ).toMatchObject({ label: "Completed", pulse: false });
+  });
+});
+
+describe("resolveSidebarThreadState", () => {
+  it("derives pending user-input state from thread activities", () => {
+    const state = resolveSidebarThreadState({
+      interactionMode: "default",
+      latestTurn: null,
+      lastVisitedAt: undefined,
+      proposedPlans: [],
+      session: null,
+      activities: [
+        {
+          id: "event-1" as never,
+          tone: "approval",
+          kind: "user-input.requested",
+          summary: "Need input",
+          payload: {
+            requestId: "request-1",
+            questions: [
+              {
+                id: "question-1",
+                header: "Question",
+                question: "Pick one",
+                options: [{ label: "Yes", description: "Approve" }],
+              },
+            ],
+          },
+          turnId: null,
+          createdAt: "2026-03-09T10:00:00.000Z",
+        },
+      ],
+    });
+
+    expect(state.hasPendingApprovals).toBe(false);
+    expect(state.hasPendingUserInput).toBe(true);
+    expect(state.statusPill).toMatchObject({ label: "Awaiting Input", pulse: false });
+  });
+});
+
+describe("sidebar thread derivation", () => {
+  type DerivedThread = {
+    id: ThreadId;
+    projectId: ProjectId;
+    createdAt: string;
+  };
+  const project1 = ProjectId.makeUnsafe("project-1");
+  const project2 = ProjectId.makeUnsafe("project-2");
+  const project3 = ProjectId.makeUnsafe("project-3");
+  const threadA: DerivedThread = {
+    id: ThreadId.makeUnsafe("thread-a"),
+    projectId: project1,
+    createdAt: "2026-03-09T10:01:00.000Z",
+  };
+  const threadB: DerivedThread = {
+    id: ThreadId.makeUnsafe("thread-b"),
+    projectId: project1,
+    createdAt: "2026-03-09T10:03:00.000Z",
+  };
+  const threadC: DerivedThread = {
+    id: ThreadId.makeUnsafe("thread-c"),
+    projectId: project2,
+    createdAt: "2026-03-09T10:02:00.000Z",
+  };
+
+  it("sorts threads by newest first", () => {
+    expect(
+      [threadA, threadB].toSorted(compareThreadsByCreatedAtDescending).map((thread) => thread.id),
+    ).toEqual(["thread-b", "thread-a"]);
+  });
+
+  it("groups and sorts threads once per project", () => {
+    const grouped = buildThreadsByProjectId([threadA, threadB, threadC]);
+
+    expect(grouped.get(project1)?.map((thread) => thread.id)).toEqual([threadB.id, threadA.id]);
+    expect(grouped.get(project2)?.map((thread) => thread.id)).toEqual([threadC.id]);
+  });
+
+  it("slices project thread previews without recomputing inline render logic", () => {
+    const grouped = buildThreadsByProjectId([threadA, threadB, threadC]);
+
+    expect(
+      visibleThreadsForProject({
+        projectId: project1,
+        previewLimit: 1,
+        expandedProjectIds: new Set(),
+        threadsByProjectId: grouped,
+      }),
+    ).toMatchObject({
+      hasHiddenThreads: true,
+      hiddenThreadCount: 1,
+      isExpanded: false,
+      visibleThreads: [{ id: "thread-b" }],
+    });
+  });
+
+  it("builds per-project thread lists for every project once", () => {
+    const grouped = buildThreadsByProjectId([threadA, threadB, threadC]);
+
+    const lists = buildProjectThreadLists({
+      projectIds: [project1, project2, project3],
+      previewLimit: 1,
+      expandedProjectIds: new Set([project2]),
+      threadsByProjectId: grouped,
+    });
+
+    expect(lists.get(project1)).toMatchObject({
+      hasHiddenThreads: true,
+      hiddenThreadCount: 1,
+      isExpanded: false,
+    });
+    expect(lists.get(project2)).toMatchObject({
+      hasHiddenThreads: false,
+      hiddenThreadCount: 0,
+      isExpanded: true,
+      visibleThreads: [{ id: "thread-c" }],
+    });
+    expect(lists.get(project3)).toMatchObject({
+      allThreads: [],
+      visibleThreads: [],
+      hasHiddenThreads: false,
+      hiddenThreadCount: 0,
+      isExpanded: false,
+    });
+  });
+
+  it("returns the newest thread from a pre-sorted list", () => {
+    expect(findNewestThread([threadB, threadA])).toMatchObject({ id: "thread-b" });
+    expect(findNewestThread([])).toBeNull();
   });
 });

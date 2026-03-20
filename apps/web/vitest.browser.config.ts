@@ -18,6 +18,7 @@ export default mergeConfig(
       include: [
         "src/components/ChatView.browser.tsx",
         "src/components/KeybindingsToast.browser.tsx",
+        "src/components/MobileBottomNav.browser.tsx",
         "src/components/ProjectShellsView.browser.tsx",
       ],
       browser: {

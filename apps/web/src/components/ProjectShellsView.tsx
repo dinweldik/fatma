@@ -8,15 +8,7 @@ import { Terminal, type ITheme } from "@xterm/xterm";
 import { PlusIcon, SquareTerminalIcon, TerminalIcon, Trash2Icon } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import {
-  forwardRef,
-  useCallback,
-  useEffect,
-  useImperativeHandle,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef } from "react";
 
 import {
   isTerminalClearShortcut,
@@ -33,8 +25,9 @@ import {
   closeProjectShell,
   createProjectShell,
   defaultProjectShellConfig,
+  interruptProjectShell,
 } from "../projectShellRunner";
-import { projectShellRuntimeThreadId } from "../projectShells";
+import { projectShellRuntimeThreadId, resolveActiveProjectShell } from "../projectShells";
 import { selectProjectShellCollection, useProjectShellStore } from "../projectShellStore";
 import {
   extractTerminalLinks,
@@ -43,13 +36,15 @@ import {
   resolvePathLinkTarget,
 } from "../terminal-links";
 import { type Project } from "../types";
+import ProjectShellMobileConsole from "./ProjectShellMobileConsole";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
-import TerminalActionBar from "./TerminalActionBar";
 
 const EMPTY_KEYBINDINGS: ResolvedKeybindingsConfig = [];
 const DESKTOP_TERMINAL_FONT_SIZE = 12;
 const MOBILE_TERMINAL_FONT_SIZE = 15;
+const MOBILE_SMOOTH_SCROLL_DURATION_MS = 120;
+const MOBILE_SCROLL_SENSITIVITY = 1.15;
 const TERMINAL_SCROLLBACK_LINES = 20_000;
 
 function formatRelativeTime(iso: string): string {
@@ -64,6 +59,11 @@ function formatRelativeTime(iso: string): string {
 
 function writeSystemMessage(terminal: Terminal, message: string): void {
   terminal.write(`\r\n[shell] ${message}\r\n`);
+}
+
+function isTerminalNearBottom(terminal: Terminal, threshold = 1): boolean {
+  const buffer = terminal.buffer.active;
+  return buffer.viewportY >= buffer.baseY - threshold;
 }
 
 function terminalThemeFromApp(): ITheme {
@@ -140,6 +140,7 @@ interface ShellTerminalViewportProps {
   cwd: string;
   runtimeEnv: Record<string, string>;
   fontSize: number;
+  layoutVersion: string;
   autoFocus: boolean;
   isMobile: boolean;
   selectionMode: boolean;
@@ -148,6 +149,7 @@ interface ShellTerminalViewportProps {
 
 const ShellTerminalViewport = forwardRef<ShellTerminalHandle, ShellTerminalViewportProps>(
   function ShellTerminalViewport(props, forwardedRef) {
+    const { onSelectionModeChange } = props;
     const runtimeThreadId = useMemo(
       () => projectShellRuntimeThreadId(props.projectId, props.shellId),
       [props.projectId, props.shellId],
@@ -155,17 +157,54 @@ const ShellTerminalViewport = forwardRef<ShellTerminalHandle, ShellTerminalViewp
     const containerRef = useRef<HTMLDivElement>(null);
     const terminalRef = useRef<Terminal | null>(null);
     const fitAddonRef = useRef<FitAddon | null>(null);
+    const resizeFrameRef = useRef<number | null>(null);
 
     useImperativeHandle(
       forwardedRef,
       () => ({
         focus: () => {
-          props.onSelectionModeChange(false);
+          onSelectionModeChange(false);
           terminalRef.current?.focus();
         },
       }),
-      [props],
+      [onSelectionModeChange],
     );
+
+    const resizeTerminalViewport = useCallback(() => {
+      const activeTerminal = terminalRef.current;
+      const activeFitAddon = fitAddonRef.current;
+      const api = readNativeApi();
+      if (!activeTerminal || !activeFitAddon || !api) {
+        return;
+      }
+
+      const buffer = activeTerminal.buffer.active;
+      const wasAtBottom = buffer.viewportY >= buffer.baseY;
+      activeFitAddon.fit();
+      if (wasAtBottom) {
+        activeTerminal.scrollToBottom();
+      }
+
+      void api.terminal
+        .resize({
+          threadId: runtimeThreadId,
+          terminalId: DEFAULT_TERMINAL_ID,
+          cols: activeTerminal.cols,
+          rows: activeTerminal.rows,
+        })
+        .catch(() => undefined);
+    }, [runtimeThreadId]);
+
+    const scheduleTerminalResize = useCallback(() => {
+      if (resizeFrameRef.current !== null) {
+        return;
+      }
+
+      resizeFrameRef.current = window.requestAnimationFrame(() => {
+        resizeFrameRef.current = null;
+        resizeTerminalViewport();
+      });
+    }, [resizeTerminalViewport]);
 
     useEffect(() => {
       const mount = containerRef.current;
@@ -188,7 +227,10 @@ const ShellTerminalViewport = forwardRef<ShellTerminalHandle, ShellTerminalViewp
         fontSize: props.fontSize,
         lineHeight: props.fontSize >= MOBILE_TERMINAL_FONT_SIZE ? 1.28 : 1.2,
         screenReaderMode: props.isMobile,
+        scrollOnUserInput: true,
+        scrollSensitivity: props.isMobile ? MOBILE_SCROLL_SENSITIVITY : 1,
         scrollback: TERMINAL_SCROLLBACK_LINES,
+        smoothScrollDuration: props.isMobile ? MOBILE_SMOOTH_SCROLL_DURATION_MS : 0,
         theme: terminalThemeFromApp(),
       });
       terminal.loadAddon(fitAddon);
@@ -360,6 +402,7 @@ const ShellTerminalViewport = forwardRef<ShellTerminalHandle, ShellTerminalViewp
           if (snapshot.history.length > 0) {
             terminal.write(snapshot.history);
           }
+          terminal.scrollToBottom();
           if (props.autoFocus) {
             window.requestAnimationFrame(() => {
               terminal.focus();
@@ -385,9 +428,13 @@ const ShellTerminalViewport = forwardRef<ShellTerminalHandle, ShellTerminalViewp
         if (!activeTerminal) {
           return;
         }
+        const wasNearBottom = isTerminalNearBottom(activeTerminal, 2);
 
         if (event.type === "output") {
           activeTerminal.write(event.data);
+          if (wasNearBottom) {
+            activeTerminal.scrollToBottom();
+          }
           return;
         }
         if (event.type === "started" || event.type === "restarted") {
@@ -395,15 +442,20 @@ const ShellTerminalViewport = forwardRef<ShellTerminalHandle, ShellTerminalViewp
           if (event.snapshot.history.length > 0) {
             activeTerminal.write(event.snapshot.history);
           }
+          activeTerminal.scrollToBottom();
           return;
         }
         if (event.type === "cleared") {
           activeTerminal.clear();
           activeTerminal.write("\u001bc");
+          activeTerminal.scrollToBottom();
           return;
         }
         if (event.type === "error") {
           writeSystemMessage(activeTerminal, event.message);
+          if (wasNearBottom) {
+            activeTerminal.scrollToBottom();
+          }
           return;
         }
         if (event.type === "exited") {
@@ -417,29 +469,14 @@ const ShellTerminalViewport = forwardRef<ShellTerminalHandle, ShellTerminalViewp
             activeTerminal,
             details.length > 0 ? `Process exited (${details})` : "Process exited",
           );
+          if (wasNearBottom) {
+            activeTerminal.scrollToBottom();
+          }
         }
       });
 
       const resizeObserver = new ResizeObserver(() => {
-        const activeTerminal = terminalRef.current;
-        const activeFitAddon = fitAddonRef.current;
-        if (!activeTerminal || !activeFitAddon) {
-          return;
-        }
-        const wasAtBottom =
-          activeTerminal.buffer.active.viewportY >= activeTerminal.buffer.active.baseY;
-        activeFitAddon.fit();
-        if (wasAtBottom) {
-          activeTerminal.scrollToBottom();
-        }
-        void api.terminal
-          .resize({
-            threadId: runtimeThreadId,
-            terminalId: DEFAULT_TERMINAL_ID,
-            cols: activeTerminal.cols,
-            rows: activeTerminal.rows,
-          })
-          .catch(() => undefined);
+        scheduleTerminalResize();
       });
       resizeObserver.observe(mount);
 
@@ -448,6 +485,10 @@ const ShellTerminalViewport = forwardRef<ShellTerminalHandle, ShellTerminalViewp
       return () => {
         disposed = true;
         resizeObserver.disconnect();
+        if (resizeFrameRef.current !== null) {
+          window.cancelAnimationFrame(resizeFrameRef.current);
+          resizeFrameRef.current = null;
+        }
         unsubscribe();
         inputDisposable.dispose();
         linkDisposable.dispose();
@@ -465,28 +506,27 @@ const ShellTerminalViewport = forwardRef<ShellTerminalHandle, ShellTerminalViewp
       props.projectId,
       props.shellId,
       runtimeThreadId,
+      scheduleTerminalResize,
     ]);
 
     useEffect(() => {
       const terminal = terminalRef.current;
-      const fitAddon = fitAddonRef.current;
-      const api = readNativeApi();
-      if (!terminal || !fitAddon || !api) {
+      if (!terminal) {
         return;
       }
 
       terminal.options.fontSize = props.fontSize;
       terminal.options.lineHeight = props.fontSize >= MOBILE_TERMINAL_FONT_SIZE ? 1.28 : 1.2;
-      fitAddon.fit();
-      void api.terminal
-        .resize({
-          threadId: runtimeThreadId,
-          terminalId: DEFAULT_TERMINAL_ID,
-          cols: terminal.cols,
-          rows: terminal.rows,
-        })
-        .catch(() => undefined);
-    }, [props.fontSize, runtimeThreadId]);
+      scheduleTerminalResize();
+    }, [props.fontSize, scheduleTerminalResize]);
+
+    useEffect(() => {
+      if (!terminalRef.current) {
+        return;
+      }
+
+      scheduleTerminalResize();
+    }, [props.layoutVersion, scheduleTerminalResize]);
 
     useEffect(() => {
       if (!props.selectionMode) {
@@ -598,34 +638,14 @@ export default function ProjectShellsView({
     ...serverConfigQueryOptions(),
     select: (config) => config.keybindings,
   });
-  const [mobileSelectionMode, setMobileSelectionMode] = useState(false);
-
-  const activeShell = useMemo(() => {
-    if (shellId) {
-      const routedShell = collection.shells.find((shell) => shell.id === shellId);
-      if (routedShell) {
-        return routedShell;
-      }
-    }
-
-    if (collection.activeShellId) {
-      const storedActiveShell =
-        collection.shells.find((shell) => shell.id === collection.activeShellId) ?? null;
-      if (storedActiveShell) {
-        return storedActiveShell;
-      }
-    }
-
-    return collection.shells[0] ?? null;
-  }, [collection.activeShellId, collection.shells, shellId]);
+  const activeShell = useMemo(
+    () => resolveActiveProjectShell(collection, shellId),
+    [collection, shellId],
+  );
 
   const activeShellId = activeShell?.id ?? null;
   const activeShellIsRunning =
     activeShellId !== null && collection.runningShellIds.includes(activeShellId);
-  const shellRuntimeThreadId = useMemo(
-    () => (activeShell ? projectShellRuntimeThreadId(project.id, activeShell.id) : null),
-    [activeShell, project.id],
-  );
   const terminalFontSize = mobileViewport.isMobile
     ? MOBILE_TERMINAL_FONT_SIZE
     : DESKTOP_TERMINAL_FONT_SIZE;
@@ -648,10 +668,6 @@ export default function ProjectShellsView({
     }
     setActiveShell(project.id, activeShellId);
   }, [activeShellId, collection.activeShellId, project.id, setActiveShell]);
-
-  useEffect(() => {
-    setMobileSelectionMode(false);
-  }, [activeShellId]);
 
   const focusTerminal = useCallback(() => {
     terminalHandleRef.current?.focus();
@@ -713,32 +729,12 @@ export default function ProjectShellsView({
     await closeShellById(activeShell.id);
   }, [activeShell, closeShellById]);
 
-  const writeToActiveShell = useCallback(
-    async (data: string) => {
-      if (!shellRuntimeThreadId) {
-        return;
-      }
-      const api = readNativeApi();
-      if (!api) {
-        return;
-      }
-
-      await api.terminal.write({
-        threadId: shellRuntimeThreadId,
-        terminalId: DEFAULT_TERMINAL_ID,
-        data,
-      });
-
-      if (!mobileViewport.isMobile || !mobileSelectionMode) {
-        focusTerminal();
-      }
-    },
-    [focusTerminal, mobileSelectionMode, mobileViewport.isMobile, shellRuntimeThreadId],
-  );
-
   const interruptActiveShell = useCallback(async () => {
-    await writeToActiveShell("\u0003");
-  }, [writeToActiveShell]);
+    if (!activeShell) {
+      return;
+    }
+    await interruptProjectShell(project.id, activeShell.id);
+  }, [activeShell, project.id]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -911,6 +907,7 @@ export default function ProjectShellsView({
                 cwd={activeShell.cwd}
                 fontSize={terminalFontSize}
                 isMobile={false}
+                layoutVersion={`desktop:${activeShell.id}:${terminalFontSize}`}
                 projectId={project.id}
                 runtimeEnv={activeShell.env}
                 selectionMode={false}
@@ -942,7 +939,10 @@ export default function ProjectShellsView({
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-hidden bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.06),transparent_28%),linear-gradient(180deg,rgba(255,255,255,0.04),rgba(255,255,255,0))] text-foreground">
+    <div
+      className="project-shell-mobile-layout flex h-full min-h-0 flex-col overflow-hidden bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.06),transparent_28%),linear-gradient(180deg,rgba(255,255,255,0.04),rgba(255,255,255,0))] text-foreground"
+      data-shell-layout="mobile"
+    >
       <header className="shrink-0 border-border/70 border-b bg-background/78 px-3 py-3 backdrop-blur-xl sm:px-5 sm:py-4">
         <div className="flex items-center gap-3">
           <div className="min-w-0 flex-1">
@@ -988,23 +988,6 @@ export default function ProjectShellsView({
               Stop
             </Button>
             <Button
-              aria-pressed={mobileSelectionMode}
-              className="rounded-none before:rounded-none"
-              disabled={!activeShell}
-              size="xs"
-              variant={mobileSelectionMode ? "secondary" : "outline"}
-              onClick={() => {
-                if (mobileSelectionMode) {
-                  setMobileSelectionMode(false);
-                  focusTerminal();
-                  return;
-                }
-                setMobileSelectionMode(true);
-              }}
-            >
-              {mobileSelectionMode ? "Done" : "Select"}
-            </Button>
-            <Button
               aria-label={
                 closeShellShortcutLabel
                   ? `Delete active shell (${closeShellShortcutLabel})`
@@ -1045,20 +1028,14 @@ export default function ProjectShellsView({
       </header>
 
       <div className="flex min-h-0 flex-1">
-        <section className="flex min-h-0 flex-1 flex-col">
-          <div className="relative flex min-h-0 flex-1 overflow-hidden border border-white/8 bg-card/70 backdrop-blur-sm rounded-none border-r-0 border-l-0 shadow-none">
+        <section className="project-shell-mobile-stage flex min-h-0 flex-1 flex-col">
+          <div className="project-shell-mobile-terminal-stack flex min-h-0 flex-1 overflow-hidden border border-white/8 bg-card/70 backdrop-blur-sm rounded-none border-r-0 border-l-0 shadow-none">
             {activeShell ? (
-              <ShellTerminalViewport
-                ref={terminalHandleRef}
-                autoFocus={false}
+              <ProjectShellMobileConsole
                 cwd={activeShell.cwd}
-                fontSize={terminalFontSize}
-                isMobile
                 projectId={project.id}
                 runtimeEnv={activeShell.env}
-                selectionMode={mobileSelectionMode}
                 shellId={activeShell.id}
-                onSelectionModeChange={setMobileSelectionMode}
               />
             ) : (
               <div className="flex flex-1 flex-col items-center justify-center px-6 text-center">
@@ -1080,13 +1057,6 @@ export default function ProjectShellsView({
               </div>
             )}
           </div>
-          {activeShell && !mobileSelectionMode ? (
-            <TerminalActionBar
-              onSend={(data) => {
-                void writeToActiveShell(data);
-              }}
-            />
-          ) : null}
         </section>
       </div>
     </div>

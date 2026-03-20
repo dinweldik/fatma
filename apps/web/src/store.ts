@@ -3,6 +3,7 @@ import {
   DEFAULT_MODEL_BY_PROVIDER,
   type ProviderKind,
   ThreadId,
+  type OrchestrationEvent,
   type OrchestrationReadModel,
   type OrchestrationSessionStatus,
 } from "@fatma/contracts";
@@ -15,6 +16,7 @@ import {
 import { create } from "zustand";
 import { type ChatMessage, type Project, type Thread } from "./types";
 import { Debouncer } from "@tanstack/react-pacer";
+import { applyOrchestrationEventToAppState } from "./orchestrationEventReducer";
 
 // ── State ────────────────────────────────────────────────────────────
 
@@ -22,6 +24,22 @@ export interface AppState {
   projects: Project[];
   threads: Thread[];
   threadsHydrated: boolean;
+}
+
+export interface RemovedThreadSnapshot {
+  readonly index: number;
+  readonly thread: Thread;
+}
+
+export interface RemovedProjectSnapshot {
+  readonly index: number;
+  readonly project: Project;
+  readonly removedThreads: ReadonlyArray<RemovedThreadSnapshot>;
+}
+
+export interface AppStatePatchResult {
+  readonly handled: boolean;
+  readonly state: AppState;
 }
 
 const PERSISTED_STATE_KEY = "fatma:renderer-state:v8";
@@ -440,6 +458,111 @@ export function setThreadBranch(
   return threads === state.threads ? state : { ...state, threads };
 }
 
+export function removeThreadOptimistically(
+  state: AppState,
+  threadId: ThreadId,
+): { nextState: AppState; removedThread: RemovedThreadSnapshot | null } {
+  const index = state.threads.findIndex((thread) => thread.id === threadId);
+  if (index < 0) {
+    return { nextState: state, removedThread: null };
+  }
+  const thread = state.threads[index];
+  if (!thread) {
+    return { nextState: state, removedThread: null };
+  }
+  return {
+    nextState: {
+      ...state,
+      threads: state.threads.filter((entry) => entry.id !== threadId),
+    },
+    removedThread: {
+      index,
+      thread,
+    },
+  };
+}
+
+export function restoreRemovedThread(
+  state: AppState,
+  removedThread: RemovedThreadSnapshot | null,
+): AppState {
+  if (!removedThread) {
+    return state;
+  }
+  if (!state.projects.some((project) => project.id === removedThread.thread.projectId)) {
+    return state;
+  }
+  if (state.threads.some((thread) => thread.id === removedThread.thread.id)) {
+    return state;
+  }
+  const threads = [...state.threads];
+  threads.splice(Math.min(removedThread.index, threads.length), 0, removedThread.thread);
+  return { ...state, threads };
+}
+
+export function removeProjectOptimistically(
+  state: AppState,
+  projectId: Project["id"],
+): { nextState: AppState; removedProject: RemovedProjectSnapshot | null } {
+  const index = state.projects.findIndex((project) => project.id === projectId);
+  if (index < 0) {
+    return { nextState: state, removedProject: null };
+  }
+  const project = state.projects[index];
+  if (!project) {
+    return { nextState: state, removedProject: null };
+  }
+  const removedThreads = state.threads
+    .map((thread, threadIndex) => ({ thread, threadIndex }))
+    .filter((entry) => entry.thread.projectId === projectId)
+    .map((entry) => ({
+      index: entry.threadIndex,
+      thread: entry.thread,
+    }));
+
+  return {
+    nextState: {
+      ...state,
+      projects: state.projects.filter((entry) => entry.id !== projectId),
+      threads:
+        removedThreads.length === 0
+          ? state.threads
+          : state.threads.filter((thread) => thread.projectId !== projectId),
+    },
+    removedProject: {
+      index,
+      project,
+      removedThreads,
+    },
+  };
+}
+
+export function restoreRemovedProject(
+  state: AppState,
+  removedProject: RemovedProjectSnapshot | null,
+): AppState {
+  if (!removedProject) {
+    return state;
+  }
+  let nextState = state;
+  if (!state.projects.some((project) => project.id === removedProject.project.id)) {
+    const projects = [...state.projects];
+    projects.splice(Math.min(removedProject.index, projects.length), 0, removedProject.project);
+    nextState = { ...nextState, projects };
+  }
+  for (const removedThread of removedProject.removedThreads) {
+    nextState = restoreRemovedThread(nextState, removedThread);
+  }
+  return nextState;
+}
+
+export function applyIncrementalOrchestrationEvent(
+  state: AppState,
+  event: OrchestrationEvent,
+): AppStatePatchResult {
+  return applyOrchestrationEventToAppState(state, event);
+}
+
 // ── Zustand store ────────────────────────────────────────────────────
 
 interface AppStore extends AppState {
@@ -451,6 +574,11 @@ interface AppStore extends AppState {
   reorderProjects: (draggedProjectId: Project["id"], targetProjectId: Project["id"]) => void;
   setError: (threadId: ThreadId, error: string | null) => void;
   setThreadBranch: (threadId: ThreadId, branch: string | null, worktreePath: string | null) => void;
+  optimisticallyRemoveThread: (threadId: ThreadId) => RemovedThreadSnapshot | null;
+  restoreRemovedThread: (removedThread: RemovedThreadSnapshot | null) => void;
+  optimisticallyRemoveProject: (projectId: Project["id"]) => RemovedProjectSnapshot | null;
+  restoreRemovedProject: (removedProject: RemovedProjectSnapshot | null) => void;
+  applyIncrementalOrchestrationEvent: (event: OrchestrationEvent) => boolean;
 }
 
 export const useStore = create<AppStore>((set) => ({
@@ -467,6 +595,37 @@ export const useStore = create<AppStore>((set) => ({
   setError: (threadId, error) => set((state) => setError(state, threadId, error)),
   setThreadBranch: (threadId, branch, worktreePath) =>
     set((state) => setThreadBranch(state, threadId, branch, worktreePath)),
+  optimisticallyRemoveThread: (threadId) => {
+    let removedThread: RemovedThreadSnapshot | null = null;
+    set((state) => {
+      const result = removeThreadOptimistically(state, threadId);
+      removedThread = result.removedThread;
+      return result.nextState;
+    });
+    return removedThread;
+  },
+  restoreRemovedThread: (removedThread) =>
+    set((state) => restoreRemovedThread(state, removedThread)),
+  optimisticallyRemoveProject: (projectId) => {
+    let removedProject: RemovedProjectSnapshot | null = null;
+    set((state) => {
+      const result = removeProjectOptimistically(state, projectId);
+      removedProject = result.removedProject;
+      return result.nextState;
+    });
+    return removedProject;
+  },
+  restoreRemovedProject: (removedProject) =>
+    set((state) => restoreRemovedProject(state, removedProject)),
+  applyIncrementalOrchestrationEvent: (event) => {
+    let handled = false;
+    set((state) => {
+      const result = applyIncrementalOrchestrationEvent(state, event);
+      handled = result.handled;
+      return result.state;
+    });
+    return handled;
+  },
 }));
 
 // Persist state changes with debouncing to avoid localStorage thrashing

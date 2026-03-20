@@ -75,7 +75,7 @@ function ProjectShellRouteView() {
   }
 
   return (
-    <SidebarInset className="app-mobile-viewport min-h-0 overflow-hidden overscroll-y-none bg-background pt-[var(--safe-area-inset-top)] pb-[calc(var(--safe-area-inset-bottom)+var(--app-mobile-bottom-nav-height,0px))] text-foreground">
+    <SidebarInset className="app-mobile-viewport min-h-0 overflow-hidden overscroll-y-none bg-background pt-[var(--safe-area-inset-top)] pb-0 text-foreground">
       <ProjectShellsView project={project} shellId={shellId} />
     </SidebarInset>
   );

@@ -6,10 +6,11 @@ import {
   useNavigate,
   useRouterState,
 } from "@tanstack/react-router";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { QueryClient, useQueryClient } from "@tanstack/react-query";
 import { Throttler } from "@tanstack/react-pacer";
 
+import { subscribeToAppResume } from "../appResumeSignals";
 import { parseAppRouteSearch } from "../appRouteSearch";
 import { APP_DISPLAY_NAME } from "../branding";
 import { Button } from "../components/ui/button";
@@ -22,9 +23,16 @@ import { useProjectShellStore } from "../projectShellStore";
 import { useStore } from "../store";
 import { preferredTerminalEditor } from "../terminal-links";
 import { terminalRunningSubprocessFromEvent } from "../terminalActivity";
-import { onServerConfigUpdated, onServerWelcome } from "../wsNativeApi";
+import {
+  getTransportState,
+  onServerConfigUpdated,
+  onServerWelcome,
+  onTransportReconnected,
+  onTransportStateChanged,
+} from "../wsNativeApi";
 import { providerQueryKeys } from "../lib/providerReactQuery";
 import { projectQueryKeys } from "../lib/projectReactQuery";
+import { applyOrchestrationEventToAppState } from "../orchestrationEventReducer";
 
 export const Route = createRootRouteWithContext<{
   queryClient: QueryClient;
@@ -54,6 +62,7 @@ function RootRouteView() {
     <ToastProvider>
       <AnchoredToastProvider>
         <EventRouter />
+        <TransportStateBanner />
         <DesktopProjectBootstrap />
         <Outlet />
       </AnchoredToastProvider>
@@ -154,22 +163,27 @@ function EventRouter() {
     let syncing = false;
     let pending = false;
     let needsProviderInvalidation = false;
+    let pendingSnapshotSync = false;
 
-    const flushSnapshotSync = async (): Promise<void> => {
-      const snapshot = await api.orchestration.getSnapshot();
-      if (disposed) return;
-      latestSequence = Math.max(latestSequence, snapshot.snapshotSequence);
-      syncServerReadModel(snapshot);
+    const reconcileProjectShellState = () => {
       const draftThreadIds = Object.keys(
         useComposerDraftStore.getState().draftThreadsByThreadId,
       ) as ThreadId[];
-      const activeProjectIds = new Set(snapshot.projects.map((project) => project.id));
+      const activeProjectIds = new Set(useStore.getState().projects.map((project) => project.id));
       for (const draftThreadId of draftThreadIds) {
         const draftThread = useComposerDraftStore.getState().draftThreadsByThreadId[draftThreadId];
         if (!draftThread) continue;
         activeProjectIds.add(draftThread.projectId);
       }
       removeOrphanedProjectShellStates(activeProjectIds);
+    };
+
+    const flushSnapshotSync = async (): Promise<void> => {
+      const snapshot = await api.orchestration.getSnapshot();
+      if (disposed) return;
+      latestSequence = Math.max(latestSequence, snapshot.snapshotSequence);
+      syncServerReadModel(snapshot);
+      reconcileProjectShellState();
       if (pending) {
         pending = false;
         await flushSnapshotSync();
@@ -200,7 +214,10 @@ function EventRouter() {
           // reflects files created, deleted, or restored during this turn.
           void queryClient.invalidateQueries({ queryKey: projectQueryKeys.all });
         }
-        void syncSnapshot();
+        if (pendingSnapshotSync) {
+          pendingSnapshotSync = false;
+          void syncSnapshot();
+        }
       },
       {
         wait: 100,
@@ -213,10 +230,38 @@ function EventRouter() {
       if (event.sequence <= latestSequence) {
         return;
       }
+      const missedSequence = latestSequence > 0 && event.sequence > latestSequence + 1;
       latestSequence = event.sequence;
       if (event.type === "thread.turn-diff-completed" || event.type === "thread.reverted") {
         needsProviderInvalidation = true;
       }
+      if (missedSequence) {
+        pendingSnapshotSync = true;
+        domainEventFlushThrottler.maybeExecute();
+        return;
+      }
+      try {
+        const next = applyOrchestrationEventToAppState(useStore.getState(), event);
+        if (next.handled) {
+          useStore.setState(next.state);
+          reconcileProjectShellState();
+          domainEventFlushThrottler.maybeExecute();
+          return;
+        }
+      } catch {
+        // Fall back to a full snapshot sync below.
+      }
+      pendingSnapshotSync = true;
+      domainEventFlushThrottler.maybeExecute();
+    });
+    const unsubAppResume = subscribeToAppResume(() => {
+      needsProviderInvalidation = true;
+      pendingSnapshotSync = true;
+      domainEventFlushThrottler.maybeExecute();
+    });
+    const unsubTransportReconnected = onTransportReconnected(() => {
+      needsProviderInvalidation = true;
+      pendingSnapshotSync = true;
       domainEventFlushThrottler.maybeExecute();
     });
     const unsubTerminalEvent = api.terminal.onEvent((event) => {
@@ -309,6 +354,8 @@ function EventRouter() {
       needsProviderInvalidation = false;
       domainEventFlushThrottler.cancel();
       unsubDomainEvent();
+      unsubAppResume();
+      unsubTransportReconnected();
       unsubTerminalEvent();
       unsubWelcome();
       unsubServerConfigUpdated();
@@ -322,6 +369,28 @@ function EventRouter() {
   ]);
 
   return null;
+}
+
+function TransportStateBanner() {
+  const [transportState, setTransportState] = useState(getTransportState);
+
+  useEffect(
+    () =>
+      onTransportStateChanged((nextState) => setTransportState(nextState), { replayCurrent: true }),
+    [],
+  );
+
+  if (transportState !== "reconnecting") {
+    return null;
+  }
+
+  return (
+    <div className="pointer-events-none fixed inset-x-0 top-[calc(var(--safe-area-inset-top)+0.75rem)] z-50 flex justify-center px-3">
+      <div className="rounded-full border border-amber-500/30 bg-amber-500/12 px-3 py-1.5 text-xs font-medium text-amber-950 shadow-lg backdrop-blur dark:text-amber-100">
+        Reconnecting live updates...
+      </div>
+    </div>
+  );
 }
 
 function DesktopProjectBootstrap() {

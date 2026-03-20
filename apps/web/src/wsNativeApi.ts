@@ -10,11 +10,13 @@ import {
 } from "@fatma/contracts";
 
 import { showContextMenuFallback } from "./contextMenuFallback";
-import { WsTransport } from "./wsTransport";
+import { type TransportState, WsTransport } from "./wsTransport";
 
 let instance: { api: NativeApi; transport: WsTransport } | null = null;
 const welcomeListeners = new Set<(payload: WsWelcomePayload) => void>();
 const serverConfigUpdatedListeners = new Set<(payload: ServerConfigUpdatedPayload) => void>();
+const transportStateListeners = new Set<(state: TransportState) => void>();
+const transportReconnectListeners = new Set<() => void>();
 
 /**
  * Subscribe to the server welcome message. If a welcome was already received
@@ -62,6 +64,30 @@ export function onServerConfigUpdated(
   };
 }
 
+export function getTransportState(): TransportState {
+  return instance?.transport.getState() ?? "connecting";
+}
+
+export function onTransportStateChanged(
+  listener: (state: TransportState) => void,
+  options?: { replayCurrent?: boolean },
+): () => void {
+  transportStateListeners.add(listener);
+  if (options?.replayCurrent) {
+    listener(getTransportState());
+  }
+  return () => {
+    transportStateListeners.delete(listener);
+  };
+}
+
+export function onTransportReconnected(listener: () => void): () => void {
+  transportReconnectListeners.add(listener);
+  return () => {
+    transportReconnectListeners.delete(listener);
+  };
+}
+
 export function createWsNativeApi(): NativeApi {
   if (instance) return instance.api;
 
@@ -82,6 +108,27 @@ export function createWsNativeApi(): NativeApi {
     for (const listener of serverConfigUpdatedListeners) {
       try {
         listener(payload);
+      } catch {
+        // Swallow listener errors
+      }
+    }
+  });
+  transport.onStateChange(
+    (state) => {
+      for (const listener of transportStateListeners) {
+        try {
+          listener(state);
+        } catch {
+          // Swallow listener errors
+        }
+      }
+    },
+    { replayCurrent: true },
+  );
+  transport.onReconnect(() => {
+    for (const listener of transportReconnectListeners) {
+      try {
+        listener();
       } catch {
         // Swallow listener errors
       }

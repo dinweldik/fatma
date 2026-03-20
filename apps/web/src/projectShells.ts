@@ -64,6 +64,28 @@ export function projectShellsRoutePath(projectId: ProjectId, shellId: string): s
   return `/shells/${projectId}/${shellId}`;
 }
 
+export function resolveActiveProjectShell(
+  collection: ProjectShellCollectionState,
+  preferredShellId?: string | null,
+): ProjectShellRecord | null {
+  if (preferredShellId) {
+    const preferredShell = collection.shells.find((shell) => shell.id === preferredShellId) ?? null;
+    if (preferredShell) {
+      return preferredShell;
+    }
+  }
+
+  if (collection.activeShellId) {
+    const activeShell =
+      collection.shells.find((shell) => shell.id === collection.activeShellId) ?? null;
+    if (activeShell) {
+      return activeShell;
+    }
+  }
+
+  return collection.shells[0] ?? null;
+}
+
 export function projectShellCollectionDefaults(): ProjectShellCollectionState {
   return {
     shells: [],
