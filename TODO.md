@@ -1,13 +1,10 @@
 # TODO
 
-## Small things
+fix sidebar on mobile showing redundant settings button in the bottom and sidebar open/close icon in the top left corner.
 
-- [ ] Submitting new messages should scroll to bottom
-- [ ] Only show last 10 threads for a given project
-- [ ] Thread archiving
-- [ ] New projects should go on top
-- [ ] Projects should be sorted by latest thread update
 
-## Bigger things
+fix source control unresponsivenewss when clicking any button (push,pull,fetch,commit) in the source control tab, sometimes buttons are disabled for no reasons and only disabled after reloading the page. add magic icon that uses the models set in the settings to generate a commit message. 
 
-- [ ] Queueing messages
+fix mobile keyboard covering shell actions in terminal mobile shell
+
+fix mobile shell scrolling and copying text from the terminal
