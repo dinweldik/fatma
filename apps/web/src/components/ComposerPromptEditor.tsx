@@ -266,7 +266,8 @@ function renderMentionChipDom(container: HTMLElement, pathValue: string): void {
   container.append(icon, label);
 }
 
-function terminalContextSignature(contexts: ReadonlyArray<TerminalContextDraft>): string {
+function terminalContextSignature(contexts: ReadonlyArray<TerminalContextDraft> | undefined): string {
+  if (!contexts || contexts.length === 0) return "";
   return contexts
     .map((context) =>
       [
@@ -638,11 +639,11 @@ export interface ComposerPromptEditorHandle {
 interface ComposerPromptEditorProps {
   value: string;
   cursor: number;
-  terminalContexts: ReadonlyArray<TerminalContextDraft>;
+  terminalContexts?: ReadonlyArray<TerminalContextDraft>;
   disabled: boolean;
   placeholder: string;
   className?: string;
-  onRemoveTerminalContext: (contextId: string) => void;
+  onRemoveTerminalContext?: (contextId: string) => void;
   onChange: (
     nextValue: string,
     nextCursor: number,
@@ -900,7 +901,7 @@ function ComposerPromptEditorInner({
     value,
     cursor: initialCursor,
     expandedCursor: expandCollapsedComposerCursor(value, initialCursor),
-    terminalContextIds: terminalContexts.map((context) => context.id),
+    terminalContextIds: (terminalContexts ?? []).map((context) => context.id),
   });
   const isApplyingControlledUpdateRef = useRef(false);
   const terminalContextActions = useMemo(
@@ -932,7 +933,7 @@ function ComposerPromptEditorInner({
       value,
       cursor: normalizedCursor,
       expandedCursor: expandCollapsedComposerCursor(value, normalizedCursor),
-      terminalContextIds: terminalContexts.map((context) => context.id),
+      terminalContextIds: (terminalContexts ?? []).map((context) => context.id),
     };
     terminalContextsSignatureRef.current = terminalContextsSignature;
 
@@ -946,7 +947,7 @@ function ComposerPromptEditorInner({
     editor.update(() => {
       const shouldRewriteEditorState = previousSnapshot.value !== value || contextsChanged;
       if (shouldRewriteEditorState) {
-        $setComposerEditorPrompt(value, terminalContexts);
+        $setComposerEditorPrompt(value, terminalContexts ?? []);
       }
       if (shouldRewriteEditorState || isFocused) {
         $setSelectionAtComposerOffset(normalizedCursor);
@@ -1106,7 +1107,7 @@ function ComposerPromptEditorInner({
             />
           }
           placeholder={
-            terminalContexts.length > 0 ? null : (
+            (terminalContexts ?? []).length > 0 ? null : (
               <div className="pointer-events-none absolute inset-0 text-[14px] leading-[1.5] text-muted-foreground/35 sm:leading-relaxed">
                 {placeholder}
               </div>
@@ -1151,7 +1152,7 @@ export const ComposerPromptEditor = forwardRef<
       editable: true,
       nodes: [ComposerMentionNode, ComposerTerminalContextNode],
       editorState: () => {
-        $setComposerEditorPrompt(initialValueRef.current, initialTerminalContextsRef.current);
+        $setComposerEditorPrompt(initialValueRef.current, initialTerminalContextsRef.current ?? []);
       },
       onError: (error) => {
         throw error;

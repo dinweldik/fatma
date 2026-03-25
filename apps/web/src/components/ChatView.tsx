@@ -1,7 +1,6 @@
 import {
   type ApprovalRequestId,
   DEFAULT_MODEL_BY_PROVIDER,
-  type CodexReasoningEffort,
   type MessageId,
   type ProjectEntry,
   type ProjectScript,
@@ -20,8 +19,6 @@ import {
 } from "@fatma/contracts";
 import {
   getDefaultModel,
-  getDefaultReasoningEffort,
-  getReasoningEffortOptions,
   normalizeModelSlug,
   resolveModelSlugForProvider,
 } from "@fatma/shared/model";
@@ -203,6 +200,10 @@ import { clamp } from "effect/Number";
 import { ComposerPromptEditor, type ComposerPromptEditorHandle } from "./ComposerPromptEditor";
 import { estimateTimelineMessageHeight } from "./timelineHeight";
 import { useProjectShellStore } from "../projectShellStore";
+import {
+  getComposerProviderState,
+  renderProviderTraitsPicker,
+} from "./chat/composerProviderRegistry";
 
 function formatMessageMeta(createdAt: string, duration: string | null): string {
   if (!duration) return formatTimestamp(createdAt);
@@ -563,8 +564,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const setComposerDraftInteractionMode = useComposerDraftStore(
     (store) => store.setInteractionMode,
   );
-  const setComposerDraftEffort = useComposerDraftStore((store) => store.setEffort);
-  const setComposerDraftCodexFastMode = useComposerDraftStore((store) => store.setCodexFastMode);
   const setActiveProjectShell = useProjectShellStore((store) => store.setActiveShell);
   const addComposerDraftImageSnapshots = useComposerDraftStore((store) => store.addImageSnapshots);
   const removeComposerDraftImage = useComposerDraftStore((store) => store.removeImage);
@@ -755,7 +754,8 @@ export default function ChatView({ threadId }: ChatViewProps) {
     selectedProvider,
     activeThread?.model ?? activeProject?.model ?? getDefaultModel(selectedProvider),
   );
-  const customModelsForSelectedProvider = settings.customCodexModels;
+  const customModelsForSelectedProvider =
+    selectedProvider === "claudeAgent" ? settings.customClaudeModels : settings.customCodexModels;
   const selectedModel = useMemo(() => {
     const draftModel = composerDraft.model;
     if (!draftModel) {
@@ -767,21 +767,17 @@ export default function ChatView({ threadId }: ChatViewProps) {
       draftModel,
     ) as ModelSlug;
   }, [baseThreadModel, composerDraft.model, customModelsForSelectedProvider, selectedProvider]);
-  const reasoningOptions = getReasoningEffortOptions(selectedProvider);
-  const supportsReasoningEffort = reasoningOptions.length > 0;
-  const selectedEffort = composerDraft.effort ?? getDefaultReasoningEffort(selectedProvider);
-  const selectedCodexFastModeEnabled =
-    selectedProvider === "codex" ? composerDraft.codexFastMode : false;
-  const selectedModelOptionsForDispatch = useMemo(() => {
-    if (selectedProvider !== "codex") {
-      return undefined;
-    }
-    const codexOptions = {
-      ...(supportsReasoningEffort && selectedEffort ? { reasoningEffort: selectedEffort } : {}),
-      ...(selectedCodexFastModeEnabled ? { fastMode: true } : {}),
-    };
-    return Object.keys(codexOptions).length > 0 ? { codex: codexOptions } : undefined;
-  }, [selectedCodexFastModeEnabled, selectedEffort, selectedProvider, supportsReasoningEffort]);
+  const composerProviderState = useMemo(
+    () =>
+      getComposerProviderState({
+        provider: selectedProvider,
+        model: selectedModel,
+        prompt: composerDraft.prompt,
+        modelOptions: composerDraft.modelOptions,
+      }),
+    [selectedProvider, selectedModel, composerDraft.prompt, composerDraft.modelOptions],
+  );
+  const selectedModelOptionsForDispatch = composerProviderState.modelOptionsForDispatch;
   const selectedModelForPicker = selectedModel;
   const modelOptionsByProvider = useMemo(
     () => getCustomModelOptionsByProvider(settings),
@@ -2805,20 +2801,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
       settings.customCodexModels,
     ],
   );
-  const onEffortSelect = useCallback(
-    (effort: CodexReasoningEffort) => {
-      setComposerDraftEffort(threadId, effort);
-      scheduleComposerFocus();
-    },
-    [scheduleComposerFocus, setComposerDraftEffort, threadId],
-  );
-  const onCodexFastModeChange = useCallback(
-    (enabled: boolean) => {
-      setComposerDraftCodexFastMode(threadId, enabled);
-      scheduleComposerFocus();
-    },
-    [scheduleComposerFocus, setComposerDraftCodexFastMode, threadId],
-  );
   const applyPromptReplacement = useCallback(
     (
       rangeStart: number,
@@ -3397,16 +3379,15 @@ export default function ChatView({ threadId }: ChatViewProps) {
                     onProviderModelChange={onProviderModelSelect}
                   />
 
-                  {selectedProvider === "codex" && selectedEffort != null ? (
+                  {composerProviderState.promptEffort != null ? (
                     <>
                       <Separator orientation="vertical" className="mx-0.5 hidden h-4 sm:block" />
-                      <CodexTraitsPicker
-                        effort={selectedEffort}
-                        fastModeEnabled={selectedCodexFastModeEnabled}
-                        options={reasoningOptions}
-                        onEffortChange={onEffortSelect}
-                        onFastModeChange={onCodexFastModeChange}
-                      />
+                      {renderProviderTraitsPicker({
+                        provider: selectedProvider,
+                        threadId,
+                        model: selectedModel,
+                        onPromptChange: setPrompt,
+                      })}
                     </>
                   ) : null}
 
@@ -3994,7 +3975,11 @@ const ProviderHealthBanner = memo(function ProviderHealthBanner({
       <Alert variant={status.status === "error" ? "error" : "warning"}>
         <CircleAlertIcon />
         <AlertTitle>
-          {status.provider === "codex" ? "Codex provider status" : `${status.provider} status`}
+          {status.provider === "codex"
+            ? "Codex provider status"
+            : status.provider === "claudeAgent"
+              ? "Claude provider status"
+              : `${status.provider} status`}
         </AlertTitle>
         <AlertDescription className="line-clamp-3" title={status.message ?? defaultMessage}>
           {status.message ?? defaultMessage}
@@ -5249,7 +5234,7 @@ function isAvailableProviderOption(option: (typeof PROVIDER_OPTIONS)[number]): o
   label: string;
   available: true;
 } {
-  return option.available && option.value !== "claudeCode";
+  return option.available;
 }
 
 const AVAILABLE_PROVIDER_OPTIONS = PROVIDER_OPTIONS.filter(isAvailableProviderOption);
@@ -5261,15 +5246,17 @@ const COMING_SOON_PROVIDER_OPTIONS = [
 
 function getCustomModelOptionsByProvider(settings: {
   customCodexModels: readonly string[];
+  customClaudeModels: readonly string[];
 }): Record<ProviderKind, ReadonlyArray<{ slug: string; name: string }>> {
   return {
     codex: getAppModelOptions("codex", settings.customCodexModels),
+    claudeAgent: getAppModelOptions("claudeAgent", settings.customClaudeModels),
   };
 }
 
 const PROVIDER_ICON_BY_PROVIDER: Record<ProviderPickerKind, Icon> = {
   codex: OpenAI,
-  claudeCode: ClaudeAI,
+  claudeAgent: ClaudeAI,
   cursor: CursorIcon,
 };
 
@@ -5410,10 +5397,7 @@ const ProviderModelPicker = memo(function ProviderModelPicker(props: {
             <MenuItem key={option.value} disabled>
               <OptionIcon
                 aria-hidden="true"
-                className={cn(
-                  "size-4 shrink-0 opacity-80",
-                  option.value === "claudeCode" ? "" : "text-muted-foreground/85",
-                )}
+                className={cn("size-4 shrink-0 opacity-80", "text-muted-foreground/85")}
               />
               <span>{option.label}</span>
               <span className="ms-auto text-[11px] text-muted-foreground/80 uppercase tracking-[0.08em]">
@@ -5440,81 +5424,3 @@ const ProviderModelPicker = memo(function ProviderModelPicker(props: {
   );
 });
 
-const CodexTraitsPicker = memo(function CodexTraitsPicker(props: {
-  effort: CodexReasoningEffort;
-  fastModeEnabled: boolean;
-  options: ReadonlyArray<CodexReasoningEffort>;
-  onEffortChange: (effort: CodexReasoningEffort) => void;
-  onFastModeChange: (enabled: boolean) => void;
-}) {
-  const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const defaultReasoningEffort = getDefaultReasoningEffort("codex");
-  const reasoningLabelByOption: Record<CodexReasoningEffort, string> = {
-    low: "Low",
-    medium: "Medium",
-    high: "High",
-    xhigh: "xHigh",
-  };
-  const triggerLabel = [
-    reasoningLabelByOption[props.effort],
-    ...(props.fastModeEnabled ? ["Fast"] : []),
-  ]
-    .filter(Boolean)
-    .join(" · ");
-
-  return (
-    <Menu
-      open={isMenuOpen}
-      onOpenChange={(open) => {
-        setIsMenuOpen(open);
-      }}
-    >
-      <MenuTrigger
-        render={
-          <Button
-            size="sm"
-            variant="ghost"
-            className="h-7 shrink-0 whitespace-nowrap px-1.5 text-[13px] text-muted-foreground/70 hover:text-foreground/80 sm:h-7 sm:px-3 sm:text-sm"
-          />
-        }
-      >
-        <span>{triggerLabel}</span>
-        <ChevronDownIcon aria-hidden="true" className="size-3 opacity-60" />
-      </MenuTrigger>
-      <MenuPopup align="start">
-        <MenuGroup>
-          <div className="px-2 py-1.5 font-medium text-muted-foreground text-xs">Reasoning</div>
-          <MenuRadioGroup
-            value={props.effort}
-            onValueChange={(value) => {
-              if (!value) return;
-              const nextEffort = props.options.find((option) => option === value);
-              if (!nextEffort) return;
-              props.onEffortChange(nextEffort);
-            }}
-          >
-            {props.options.map((effort) => (
-              <MenuRadioItem key={effort} value={effort}>
-                {reasoningLabelByOption[effort]}
-                {effort === defaultReasoningEffort ? " (default)" : ""}
-              </MenuRadioItem>
-            ))}
-          </MenuRadioGroup>
-        </MenuGroup>
-        <MenuDivider />
-        <MenuGroup>
-          <div className="px-2 py-1.5 font-medium text-muted-foreground text-xs">Fast Mode</div>
-          <MenuRadioGroup
-            value={props.fastModeEnabled ? "on" : "off"}
-            onValueChange={(value) => {
-              props.onFastModeChange(value === "on");
-            }}
-          >
-            <MenuRadioItem value="off">off</MenuRadioItem>
-            <MenuRadioItem value="on">on</MenuRadioItem>
-          </MenuRadioGroup>
-        </MenuGroup>
-      </MenuPopup>
-    </Menu>
-  );
-});

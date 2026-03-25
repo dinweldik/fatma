@@ -3,8 +3,9 @@ import {
   type OrchestrationEvent,
   type OrchestrationLatestTurn,
   type OrchestrationSession,
+  type ProviderKind,
 } from "@fatma/contracts";
-import { resolveModelSlug, resolveModelSlugForProvider } from "@fatma/shared/model";
+import { inferProviderForModel, resolveModelSlugForProvider } from "@fatma/shared/model";
 
 import type { AppState } from "./store";
 import type { Project, Thread, ThreadSession } from "./types";
@@ -31,9 +32,14 @@ function toLegacySessionStatus(status: OrchestrationSession["status"]): ThreadSe
   }
 }
 
+function toProviderKind(name: string | null): ProviderKind {
+  if (name === "codex" || name === "claudeAgent") return name;
+  return "codex";
+}
+
 function toThreadSession(session: OrchestrationSession): ThreadSession {
   return {
-    provider: "codex",
+    provider: toProviderKind(session.providerName),
     status: toLegacySessionStatus(session.status),
     activeTurnId: session.activeTurnId ?? undefined,
     createdAt: session.updatedAt,
@@ -86,11 +92,16 @@ function upsertLatestTurn(
 }
 
 function resolveThreadModel(model: string): string {
-  return resolveModelSlugForProvider("codex", model);
+  const provider = inferProviderForModel(model);
+  return resolveModelSlugForProvider(provider, model);
 }
 
 function resolveProjectModel(model: string | null): string {
-  return model ? resolveModelSlug(model) : DEFAULT_MODEL_BY_PROVIDER.codex;
+  if (!model) {
+    return DEFAULT_MODEL_BY_PROVIDER.codex;
+  }
+  const provider = inferProviderForModel(model);
+  return resolveModelSlugForProvider(provider, model);
 }
 
 function createProjectFromEvent(
