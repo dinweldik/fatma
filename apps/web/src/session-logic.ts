@@ -1,3 +1,4 @@
+export { formatTimestamp } from "./timestampFormat";
 import {
   ApprovalRequestId,
   isToolLifecycleItemType,
