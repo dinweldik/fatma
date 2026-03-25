@@ -1,3 +1,4 @@
+import { EDITORS, type EditorId } from "@fatma/contracts";
 import { isMacPlatform } from "./lib/utils";
 
 export type TerminalLinkKind = "url" | "path";
@@ -153,6 +154,17 @@ export function isTerminalLinkActivation(
   return isMacPlatform(platform)
     ? event.metaKey && !event.ctrlKey
     : event.ctrlKey && !event.metaKey;
+}
+
+const LAST_EDITOR_KEY = "fatma:last-editor";
+
+export function preferredTerminalEditor(): EditorId {
+  const fallback = EDITORS.find((editor) => editor.command)?.id ?? EDITORS[0]?.id ?? "cursor";
+  if (typeof window === "undefined") return fallback;
+  const stored = window.localStorage.getItem(LAST_EDITOR_KEY);
+  if (!stored) return fallback;
+  const configured = EDITORS.find((editor) => editor.id === stored);
+  return configured?.command ? configured.id : fallback;
 }
 
 export function resolvePathLinkTarget(rawPath: string, cwd: string): string {
