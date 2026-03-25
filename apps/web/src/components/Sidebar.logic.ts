@@ -220,6 +220,56 @@ export function resolveProjectStatusIndicator(
   return highestPriorityStatus;
 }
 
+export function buildThreadsByProjectId<
+  TThread extends Pick<Thread, "createdAt" | "id" | "projectId">,
+>(threads: ReadonlyArray<TThread>): Map<Project["id"], TThread[]> {
+  const grouped = new Map<Project["id"], TThread[]>();
+  for (const thread of threads) {
+    const existing = grouped.get(thread.projectId);
+    if (existing) {
+      existing.push(thread);
+      continue;
+    }
+    grouped.set(thread.projectId, [thread]);
+  }
+  for (const projectThreads of grouped.values()) {
+    projectThreads.sort(compareThreadsByCreatedAtDescending);
+  }
+  return grouped;
+}
+
+export function buildProjectThreadLists<
+  TThread extends Pick<Thread, "createdAt" | "id" | "projectId">,
+>(input: {
+  projectIds: ReadonlyArray<Project["id"]>;
+  previewLimit: number;
+  expandedProjectIds: ReadonlySet<Project["id"]>;
+  threadsByProjectId: ReadonlyMap<Project["id"], ReadonlyArray<TThread>>;
+}): Map<Project["id"], ProjectThreadList<TThread>> {
+  const lists = new Map<Project["id"], ProjectThreadList<TThread>>();
+  for (const projectId of input.projectIds) {
+    const allThreads = input.threadsByProjectId.get(projectId) ?? [];
+    const isExpanded = input.expandedProjectIds.has(projectId);
+    const hasHiddenThreads = allThreads.length > input.previewLimit;
+    const visibleThreads =
+      hasHiddenThreads && !isExpanded ? allThreads.slice(0, input.previewLimit) : allThreads;
+    lists.set(projectId, {
+      allThreads,
+      hasHiddenThreads,
+      hiddenThreadCount: hasHiddenThreads ? allThreads.length - visibleThreads.length : 0,
+      isExpanded,
+      visibleThreads,
+    });
+  }
+  return lists;
+}
+
+export function findNewestThread<TThread extends Pick<Thread, "createdAt" | "id">>(
+  threads: ReadonlyArray<TThread>,
+): TThread | null {
+  return threads[0] ?? null;
+}
+
 export function compareThreadsByCreatedAtDescending(
   left: Pick<Thread, "createdAt" | "id">,
   right: Pick<Thread, "createdAt" | "id">,
