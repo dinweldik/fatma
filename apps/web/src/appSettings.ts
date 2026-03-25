@@ -3,6 +3,7 @@ import { Option, Schema } from "effect";
 import {
   TrimmedNonEmptyString,
   type ProviderKind,
+  type ProviderServiceTier,
   type ProviderStartOptions,
 } from "@fatma/contracts";
 import {
@@ -17,6 +18,31 @@ import { EnvMode } from "./components/BranchToolbar.logic";
 const APP_SETTINGS_STORAGE_KEY = "fatma:app-settings:v1";
 const MAX_CUSTOM_MODEL_COUNT = 32;
 export const MAX_CUSTOM_MODEL_LENGTH = 256;
+
+export const APP_SERVICE_TIER_OPTIONS = [
+  { value: "auto" as const, label: "Auto" },
+  { value: "fast" as const, label: "Fast" },
+  { value: "flex" as const, label: "Flex" },
+];
+export type AppServiceTier = (typeof APP_SERVICE_TIER_OPTIONS)[number]["value"];
+
+const MODELS_WITH_FAST_SUPPORT = new Set(["gpt-5.4"]);
+
+export function resolveAppServiceTier(serviceTier: AppServiceTier): ProviderServiceTier | null {
+  return serviceTier === "auto" ? null : serviceTier;
+}
+
+export function shouldShowFastTierIcon(
+  model: string | null | undefined,
+  serviceTier: AppServiceTier,
+): boolean {
+  const normalizedModel = normalizeModelSlug(model);
+  return (
+    resolveAppServiceTier(serviceTier) === "fast" &&
+    normalizedModel !== null &&
+    MODELS_WITH_FAST_SUPPORT.has(normalizedModel)
+  );
+}
 
 export const TimestampFormat = Schema.Literals(["locale", "12-hour", "24-hour"]);
 export type TimestampFormat = typeof TimestampFormat.Type;
@@ -74,6 +100,9 @@ export const AppSettingsSchema = Schema.Struct({
   customCodexModels: Schema.Array(Schema.String).pipe(withDefaults(() => [])),
   customClaudeModels: Schema.Array(Schema.String).pipe(withDefaults(() => [])),
   textGenerationModel: Schema.optional(TrimmedNonEmptyString),
+  codexServiceTier: Schema.Literals(["auto", "fast", "flex"]).pipe(
+    withDefaults(() => "auto" as const),
+  ),
 });
 export type AppSettings = typeof AppSettingsSchema.Type;
 export interface AppModelOption {
