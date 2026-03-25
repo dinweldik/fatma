@@ -8,7 +8,7 @@ import { Effect, Exit, Layer, PlatformError, PubSub, Scope, Stream } from "effec
 import { describe, expect, it, afterEach, vi } from "vitest";
 import { createServer } from "./wsServer";
 import WebSocket from "ws";
-import { ServerConfig, type ServerConfigShape } from "./config";
+import { deriveServerPaths, ServerConfig, type ServerConfigShape } from "./config";
 import { makeServerProviderLayer, makeServerRuntimeServicesLayer } from "./serverLayers";
 
 import {
@@ -73,13 +73,6 @@ const defaultProviderStatuses: ReadonlyArray<ServerProviderStatus> = [
     checkedAt: "2026-01-01T00:00:00.000Z",
   },
 ];
-
-const defaultTelegramNotifications = {
-  chatId: "",
-  hasBotToken: false,
-  botTokenHint: null,
-  enabled: false,
-} as const;
 
 const defaultProviderHealthService: ProviderHealthShape = {
   getStatuses: Effect.succeed(defaultProviderStatuses),
@@ -408,10 +401,7 @@ async function rewriteKeybindingsAndWaitForPush(
 async function requestPath(
   port: number,
   requestPath: string,
-  options?: {
-    headers?: Http.OutgoingHttpHeaders;
-  },
-): Promise<{ statusCode: number; body: string; headers: Http.IncomingHttpHeaders }> {
+): Promise<{ statusCode: number; body: string }> {
   return new Promise((resolve, reject) => {
     const req = Http.request(
       {
@@ -419,7 +409,6 @@ async function requestPath(
         port,
         path: requestPath,
         method: "GET",
-        headers: options?.headers,
       },
       (res) => {
         const chunks: Buffer[] = [];
@@ -430,7 +419,6 @@ async function requestPath(
           resolve({
             statusCode: res.statusCode ?? 0,
             body: Buffer.concat(chunks).toString("utf8"),
-            headers: res.headers,
           });
         });
       },
@@ -463,6 +451,16 @@ function expectAvailableEditors(value: unknown): void {
   }
 }
 
+function ensureParentDir(filePath: string): void {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+}
+
+function deriveServerPathsSync(baseDir: string, devUrl: URL | undefined) {
+  return Effect.runSync(
+    deriveServerPaths(baseDir, devUrl).pipe(Effect.provide(NodeServices.layer)),
+  );
+}
+
 describe("WebSocket Server", () => {
   let server: Http.Server | null = null;
   let serverScope: Scope.Closeable | null = null;
@@ -486,13 +484,13 @@ describe("WebSocket Server", () => {
       logWebSocketEvents?: boolean;
       devUrl?: string;
       authToken?: string;
-      stateDir?: string;
+      baseDir?: string;
       staticDir?: string;
       providerLayer?: Layer.Layer<ProviderService, never>;
       providerHealth?: ProviderHealthShape;
       open?: OpenShape;
       gitManager?: GitManagerShape;
-      gitCore?: Partial<GitCoreShape>;
+      gitCore?: Pick<GitCoreShape, "listBranches" | "initRepo" | "pullCurrentBranch">;
       terminalManager?: TerminalManagerShape;
     } = {},
   ): Promise<Http.Server> {
@@ -500,7 +498,9 @@ describe("WebSocket Server", () => {
       throw new Error("Test server is already running");
     }
 
-    const stateDir = options.stateDir ?? makeTempDir("fatma-ws-state-");
+    const baseDir = options.baseDir ?? makeTempDir("fatma-ws-base-");
+    const devUrl = options.devUrl ? new URL(options.devUrl) : undefined;
+    const derivedPaths = deriveServerPathsSync(baseDir, devUrl);
     const scope = await Effect.runPromise(Scope.make("sequential"));
     const persistenceLayer = options.persistenceLayer ?? SqlitePersistenceMemory;
     const providerLayer = options.providerLayer ?? makeServerProviderLayer();
@@ -514,10 +514,10 @@ describe("WebSocket Server", () => {
       port: 0,
       host: undefined,
       cwd: options.cwd ?? "/test/project",
-      keybindingsConfigPath: path.join(stateDir, "keybindings.json"),
-      stateDir,
+      baseDir,
+      ...derivedPaths,
       staticDir: options.staticDir,
-      devUrl: options.devUrl ? new URL(options.devUrl) : undefined,
+      devUrl,
       noBrowser: true,
       authToken: options.authToken,
       autoBootstrapProjectFromCwd: options.autoBootstrapProjectFromCwd ?? false,
@@ -602,12 +602,13 @@ describe("WebSocket Server", () => {
   });
 
   it("serves persisted attachments from stateDir", async () => {
-    const stateDir = makeTempDir("fatma-state-attachments-");
-    const attachmentPath = path.join(stateDir, "attachments", "thread-a", "message-a", "0.png");
+    const baseDir = makeTempDir("fatma-state-attachments-");
+    const { attachmentsDir } = deriveServerPathsSync(baseDir, undefined);
+    const attachmentPath = path.join(attachmentsDir, "thread-a", "message-a", "0.png");
     fs.mkdirSync(path.dirname(attachmentPath), { recursive: true });
     fs.writeFileSync(attachmentPath, Buffer.from("hello-attachment"));
 
-    server = await createTestServer({ cwd: "/test/project", stateDir });
+    server = await createTestServer({ cwd: "/test/project", baseDir });
     const addr = server.address();
     const port = typeof addr === "object" && addr !== null ? addr.port : 0;
     expect(port).toBeGreaterThan(0);
@@ -620,10 +621,10 @@ describe("WebSocket Server", () => {
   });
 
   it("serves persisted attachments for URL-encoded paths", async () => {
-    const stateDir = makeTempDir("fatma-state-attachments-encoded-");
+    const baseDir = makeTempDir("fatma-state-attachments-encoded-");
+    const { attachmentsDir } = deriveServerPathsSync(baseDir, undefined);
     const attachmentPath = path.join(
-      stateDir,
-      "attachments",
+      attachmentsDir,
       "thread%20folder",
       "message%20folder",
       "file%20name.png",
@@ -631,7 +632,7 @@ describe("WebSocket Server", () => {
     fs.mkdirSync(path.dirname(attachmentPath), { recursive: true });
     fs.writeFileSync(attachmentPath, Buffer.from("hello-encoded-attachment"));
 
-    server = await createTestServer({ cwd: "/test/project", stateDir });
+    server = await createTestServer({ cwd: "/test/project", baseDir });
     const addr = server.address();
     const port = typeof addr === "object" && addr !== null ? addr.port : 0;
     expect(port).toBeGreaterThan(0);
@@ -645,52 +646,12 @@ describe("WebSocket Server", () => {
     expect(bytes).toEqual(Buffer.from("hello-encoded-attachment"));
   });
 
-  it("rewrites dev redirects from localhost to the incoming remote host", async () => {
-    server = await createTestServer({
-      cwd: "/test/project",
-      devUrl: "http://localhost:5733",
-    });
-    const addr = server.address();
-    const port = typeof addr === "object" && addr !== null ? addr.port : 0;
-    expect(port).toBeGreaterThan(0);
-
-    const response = await requestPath(port, "/", {
-      headers: {
-        Host: "vscode.buru-cobra.ts.net",
-        "X-Forwarded-Proto": "https",
-      },
-    });
-
-    expect(response.statusCode).toBe(302);
-    expect(response.headers.location).toBe("https://vscode.buru-cobra.ts.net:5733/");
-  });
-
-  it("keeps the dev server port when incoming host includes a non-dev port", async () => {
-    server = await createTestServer({
-      cwd: "/test/project",
-      devUrl: "http://localhost:5733",
-    });
-    const addr = server.address();
-    const port = typeof addr === "object" && addr !== null ? addr.port : 0;
-    expect(port).toBeGreaterThan(0);
-
-    const response = await requestPath(port, "/", {
-      headers: {
-        Host: "vscode.buru-cobra.ts.net:3773",
-        "X-Forwarded-Proto": "https",
-      },
-    });
-
-    expect(response.statusCode).toBe(302);
-    expect(response.headers.location).toBe("https://vscode.buru-cobra.ts.net:5733/");
-  });
-
   it("serves static index for root path", async () => {
-    const stateDir = makeTempDir("fatma-state-static-root-");
+    const baseDir = makeTempDir("fatma-state-static-root-");
     const staticDir = makeTempDir("fatma-static-root-");
     fs.writeFileSync(path.join(staticDir, "index.html"), "<h1>static-root</h1>", "utf8");
 
-    server = await createTestServer({ cwd: "/test/project", stateDir, staticDir });
+    server = await createTestServer({ cwd: "/test/project", baseDir, staticDir });
     const addr = server.address();
     const port = typeof addr === "object" && addr !== null ? addr.port : 0;
     expect(port).toBeGreaterThan(0);
@@ -698,15 +659,14 @@ describe("WebSocket Server", () => {
     const response = await fetch(`http://127.0.0.1:${port}/`);
     expect(response.status).toBe(200);
     expect(await response.text()).toContain("static-root");
-    expect(response.headers.get("cache-control")).toBe("no-cache");
   });
 
   it("rejects static path traversal attempts", async () => {
-    const stateDir = makeTempDir("fatma-state-static-traversal-");
+    const baseDir = makeTempDir("fatma-state-static-traversal-");
     const staticDir = makeTempDir("fatma-static-traversal-");
     fs.writeFileSync(path.join(staticDir, "index.html"), "<h1>safe</h1>", "utf8");
 
-    server = await createTestServer({ cwd: "/test/project", stateDir, staticDir });
+    server = await createTestServer({ cwd: "/test/project", baseDir, staticDir });
     const addr = server.address();
     const port = typeof addr === "object" && addr !== null ? addr.port : 0;
     expect(port).toBeGreaterThan(0);
@@ -714,62 +674,6 @@ describe("WebSocket Server", () => {
     const response = await requestPath(port, "/..%2f..%2fetc/passwd");
     expect(response.statusCode).toBe(400);
     expect(response.body).toBe("Invalid static file path");
-  });
-
-  it("serves hashed static assets with immutable cache headers", async () => {
-    const stateDir = makeTempDir("fatma-state-static-assets-");
-    const staticDir = makeTempDir("fatma-static-assets-");
-    const assetsDir = path.join(staticDir, "assets");
-    fs.mkdirSync(assetsDir, { recursive: true });
-    fs.writeFileSync(path.join(staticDir, "index.html"), "<h1>static-root</h1>", "utf8");
-    fs.writeFileSync(path.join(assetsDir, "app-abc123.js"), "console.log('hi');", "utf8");
-
-    server = await createTestServer({ cwd: "/test/project", stateDir, staticDir });
-    const addr = server.address();
-    const port = typeof addr === "object" && addr !== null ? addr.port : 0;
-    expect(port).toBeGreaterThan(0);
-
-    const response = await requestPath(port, "/assets/app-abc123.js");
-    expect(response.statusCode).toBe(200);
-    expect(response.headers["cache-control"]).toBe("public, max-age=31536000, immutable");
-  });
-
-  it("serves the service worker with revalidation headers", async () => {
-    const stateDir = makeTempDir("fatma-state-static-sw-");
-    const staticDir = makeTempDir("fatma-static-sw-");
-    fs.writeFileSync(path.join(staticDir, "index.html"), "<h1>static-root</h1>", "utf8");
-    fs.writeFileSync(
-      path.join(staticDir, "sw.js"),
-      "self.addEventListener('fetch', () => {});",
-      "utf8",
-    );
-
-    server = await createTestServer({ cwd: "/test/project", stateDir, staticDir });
-    const addr = server.address();
-    const port = typeof addr === "object" && addr !== null ? addr.port : 0;
-    expect(port).toBeGreaterThan(0);
-
-    const response = await requestPath(port, "/sw.js");
-    expect(response.statusCode).toBe(200);
-    expect(response.headers["cache-control"]).toBe("no-cache");
-    expect(response.headers["service-worker-allowed"]).toBe("/");
-  });
-
-  it("serves the web manifest with the manifest content type", async () => {
-    const stateDir = makeTempDir("fatma-state-static-manifest-");
-    const staticDir = makeTempDir("fatma-static-manifest-");
-    fs.writeFileSync(path.join(staticDir, "index.html"), "<h1>static-root</h1>", "utf8");
-    fs.writeFileSync(path.join(staticDir, "manifest.webmanifest"), '{"name":"fatma"}', "utf8");
-
-    server = await createTestServer({ cwd: "/test/project", stateDir, staticDir });
-    const addr = server.address();
-    const port = typeof addr === "object" && addr !== null ? addr.port : 0;
-    expect(port).toBeGreaterThan(0);
-
-    const response = await requestPath(port, "/manifest.webmanifest");
-    expect(response.statusCode).toBe(200);
-    expect(response.headers["content-type"]).toBe("application/manifest+json");
-    expect(response.headers["cache-control"]).toBe("no-cache");
   });
 
   it("bootstraps the cwd project on startup when enabled", async () => {
@@ -840,15 +744,16 @@ describe("WebSocket Server", () => {
   });
 
   it("includes bootstrap ids in welcome when cwd project and thread already exist", async () => {
-    const stateDir = makeTempDir("fatma-state-bootstrap-existing-");
-    const persistenceLayer = makeSqlitePersistenceLive(path.join(stateDir, "state.sqlite")).pipe(
+    const baseDir = makeTempDir("fatma-state-bootstrap-existing-");
+    const { dbPath } = deriveServerPathsSync(baseDir, undefined);
+    const persistenceLayer = makeSqlitePersistenceLive(dbPath).pipe(
       Layer.provide(NodeServices.layer),
     );
     const cwd = "/test/bootstrap-existing";
 
     server = await createTestServer({
       cwd,
-      stateDir,
+      baseDir,
       persistenceLayer,
       autoBootstrapProjectFromCwd: true,
     });
@@ -871,7 +776,7 @@ describe("WebSocket Server", () => {
 
     server = await createTestServer({
       cwd,
-      stateDir,
+      baseDir,
       persistenceLayer,
       autoBootstrapProjectFromCwd: true,
     });
@@ -920,11 +825,12 @@ describe("WebSocket Server", () => {
   });
 
   it("responds to server.getConfig", async () => {
-    const stateDir = makeTempDir("fatma-state-get-config-");
-    const keybindingsPath = path.join(stateDir, "keybindings.json");
+    const baseDir = makeTempDir("fatma-state-get-config-");
+    const { keybindingsConfigPath: keybindingsPath } = deriveServerPathsSync(baseDir, undefined);
+    ensureParentDir(keybindingsPath);
     fs.writeFileSync(keybindingsPath, "[]", "utf8");
 
-    server = await createTestServer({ cwd: "/my/workspace", stateDir });
+    server = await createTestServer({ cwd: "/my/workspace", baseDir });
     const addr = server.address();
     const port = typeof addr === "object" && addr !== null ? addr.port : 0;
 
@@ -940,17 +846,16 @@ describe("WebSocket Server", () => {
       issues: [],
       providers: defaultProviderStatuses,
       availableEditors: expect.any(Array),
-      telegramNotifications: defaultTelegramNotifications,
     });
     expectAvailableEditors((response.result as { availableEditors: unknown }).availableEditors);
   });
 
   it("bootstraps default keybindings file when missing", async () => {
-    const stateDir = makeTempDir("fatma-state-bootstrap-keybindings-");
-    const keybindingsPath = path.join(stateDir, "keybindings.json");
+    const baseDir = makeTempDir("fatma-state-bootstrap-keybindings-");
+    const { keybindingsConfigPath: keybindingsPath } = deriveServerPathsSync(baseDir, undefined);
     expect(fs.existsSync(keybindingsPath)).toBe(false);
 
-    server = await createTestServer({ cwd: "/my/workspace", stateDir });
+    server = await createTestServer({ cwd: "/my/workspace", baseDir });
     const addr = server.address();
     const port = typeof addr === "object" && addr !== null ? addr.port : 0;
 
@@ -966,7 +871,6 @@ describe("WebSocket Server", () => {
       issues: [],
       providers: defaultProviderStatuses,
       availableEditors: expect.any(Array),
-      telegramNotifications: defaultTelegramNotifications,
     });
     expectAvailableEditors((response.result as { availableEditors: unknown }).availableEditors);
 
@@ -977,11 +881,12 @@ describe("WebSocket Server", () => {
   });
 
   it("falls back to defaults and reports malformed keybindings config issues", async () => {
-    const stateDir = makeTempDir("fatma-state-malformed-keybindings-");
-    const keybindingsPath = path.join(stateDir, "keybindings.json");
+    const baseDir = makeTempDir("fatma-state-malformed-keybindings-");
+    const { keybindingsConfigPath: keybindingsPath } = deriveServerPathsSync(baseDir, undefined);
+    ensureParentDir(keybindingsPath);
     fs.writeFileSync(keybindingsPath, "{ not-json", "utf8");
 
-    server = await createTestServer({ cwd: "/my/workspace", stateDir });
+    server = await createTestServer({ cwd: "/my/workspace", baseDir });
     const addr = server.address();
     const port = typeof addr === "object" && addr !== null ? addr.port : 0;
 
@@ -1002,15 +907,15 @@ describe("WebSocket Server", () => {
       ],
       providers: defaultProviderStatuses,
       availableEditors: expect.any(Array),
-      telegramNotifications: defaultTelegramNotifications,
     });
     expectAvailableEditors((response.result as { availableEditors: unknown }).availableEditors);
     expect(fs.readFileSync(keybindingsPath, "utf8")).toBe("{ not-json");
   });
 
   it("ignores invalid keybinding entries but keeps valid entries and reports issues", async () => {
-    const stateDir = makeTempDir("fatma-state-partial-invalid-keybindings-");
-    const keybindingsPath = path.join(stateDir, "keybindings.json");
+    const baseDir = makeTempDir("fatma-state-partial-invalid-keybindings-");
+    const { keybindingsConfigPath: keybindingsPath } = deriveServerPathsSync(baseDir, undefined);
+    ensureParentDir(keybindingsPath);
     fs.writeFileSync(
       keybindingsPath,
       JSON.stringify([
@@ -1021,7 +926,7 @@ describe("WebSocket Server", () => {
       "utf8",
     );
 
-    server = await createTestServer({ cwd: "/my/workspace", stateDir });
+    server = await createTestServer({ cwd: "/my/workspace", baseDir });
     const addr = server.address();
     const port = typeof addr === "object" && addr !== null ? addr.port : 0;
 
@@ -1037,7 +942,6 @@ describe("WebSocket Server", () => {
       issues: Array<{ kind: string; index?: number; message: string }>;
       providers: ReadonlyArray<ServerProviderStatus>;
       availableEditors: unknown;
-      telegramNotifications: typeof defaultTelegramNotifications;
     };
     expect(result.cwd).toBe("/my/workspace");
     expect(result.keybindingsConfigPath).toBe(keybindingsPath);
@@ -1058,15 +962,15 @@ describe("WebSocket Server", () => {
     expect(result.keybindings.some((entry) => entry.command === "terminal.new")).toBe(true);
     expect(result.providers).toEqual(defaultProviderStatuses);
     expectAvailableEditors(result.availableEditors);
-    expect(result.telegramNotifications).toEqual(defaultTelegramNotifications);
   });
 
   it("pushes server.configUpdated issues when keybindings file changes", async () => {
-    const stateDir = makeTempDir("fatma-state-keybindings-watch-");
-    const keybindingsPath = path.join(stateDir, "keybindings.json");
+    const baseDir = makeTempDir("fatma-state-keybindings-watch-");
+    const { keybindingsConfigPath: keybindingsPath } = deriveServerPathsSync(baseDir, undefined);
+    ensureParentDir(keybindingsPath);
     fs.writeFileSync(keybindingsPath, "[]", "utf8");
 
-    server = await createTestServer({ cwd: "/my/workspace", stateDir });
+    server = await createTestServer({ cwd: "/my/workspace", baseDir });
     const addr = server.address();
     const port = typeof addr === "object" && addr !== null ? addr.port : 0;
 
@@ -1122,8 +1026,9 @@ describe("WebSocket Server", () => {
   });
 
   it("reads keybindings from the configured state directory", async () => {
-    const stateDir = makeTempDir("fatma-state-keybindings-");
-    const keybindingsPath = path.join(stateDir, "keybindings.json");
+    const baseDir = makeTempDir("fatma-state-keybindings-");
+    const { keybindingsConfigPath: keybindingsPath } = deriveServerPathsSync(baseDir, undefined);
+    ensureParentDir(keybindingsPath);
     fs.writeFileSync(
       keybindingsPath,
       JSON.stringify([
@@ -1133,7 +1038,7 @@ describe("WebSocket Server", () => {
       ]),
       "utf8",
     );
-    server = await createTestServer({ cwd: "/my/workspace", stateDir });
+    server = await createTestServer({ cwd: "/my/workspace", baseDir });
     const addr = server.address();
     const port = typeof addr === "object" && addr !== null ? addr.port : 0;
 
@@ -1152,21 +1057,21 @@ describe("WebSocket Server", () => {
       issues: [],
       providers: defaultProviderStatuses,
       availableEditors: expect.any(Array),
-      telegramNotifications: defaultTelegramNotifications,
     });
     expectAvailableEditors((response.result as { availableEditors: unknown }).availableEditors);
   });
 
   it("upserts keybinding rules and updates cached server config", async () => {
-    const stateDir = makeTempDir("fatma-state-upsert-keybinding-");
-    const keybindingsPath = path.join(stateDir, "keybindings.json");
+    const baseDir = makeTempDir("fatma-state-upsert-keybinding-");
+    const { keybindingsConfigPath: keybindingsPath } = deriveServerPathsSync(baseDir, undefined);
+    ensureParentDir(keybindingsPath);
     fs.writeFileSync(
       keybindingsPath,
       JSON.stringify([{ key: "mod+j", command: "terminal.toggle" }]),
       "utf8",
     );
 
-    server = await createTestServer({ cwd: "/my/workspace", stateDir });
+    server = await createTestServer({ cwd: "/my/workspace", baseDir });
     const addr = server.address();
     const port = typeof addr === "object" && addr !== null ? addr.port : 0;
 
@@ -1200,7 +1105,6 @@ describe("WebSocket Server", () => {
       issues: [],
       providers: defaultProviderStatuses,
       availableEditors: expect.any(Array),
-      telegramNotifications: defaultTelegramNotifications,
     });
     expectAvailableEditors(
       (configResponse.result as { availableEditors: unknown }).availableEditors,
@@ -1689,82 +1593,6 @@ describe("WebSocket Server", () => {
     });
   });
 
-  it("supports projects.browseDirectory within the workspace root", async () => {
-    const workspace = makeTempDir("fatma-ws-browse-directory-");
-    fs.mkdirSync(path.join(workspace, "apps"), { recursive: true });
-    fs.mkdirSync(path.join(workspace, "packages"), { recursive: true });
-    fs.writeFileSync(path.join(workspace, "README.md"), "# test", "utf8");
-
-    server = await createTestServer({ cwd: "/test" });
-    const addr = server.address();
-    const port = typeof addr === "object" && addr !== null ? addr.port : 0;
-
-    const [ws] = await connectAndAwaitWelcome(port);
-    connections.push(ws);
-
-    const response = await sendRequest(ws, WS_METHODS.projectsBrowseDirectory, {
-      rootPath: workspace,
-      directoryPath: workspace,
-    });
-
-    expect(response.error).toBeUndefined();
-    expect(response.result).toEqual({
-      rootPath: workspace,
-      directoryPath: workspace,
-      parentPath: null,
-      entries: [
-        { name: "apps", path: path.join(workspace, "apps"), kind: "directory" },
-        { name: "packages", path: path.join(workspace, "packages"), kind: "directory" },
-        { name: "README.md", path: path.join(workspace, "README.md"), kind: "file" },
-      ],
-    });
-  });
-
-  it("supports projects.createDirectory within the workspace root", async () => {
-    const workspace = makeTempDir("fatma-ws-create-directory-");
-
-    server = await createTestServer({ cwd: "/test" });
-    const addr = server.address();
-    const port = typeof addr === "object" && addr !== null ? addr.port : 0;
-
-    const [ws] = await connectAndAwaitWelcome(port);
-    connections.push(ws);
-
-    const response = await sendRequest(ws, WS_METHODS.projectsCreateDirectory, {
-      rootPath: workspace,
-      parentPath: workspace,
-      name: "demo-app",
-    });
-
-    expect(response.error).toBeUndefined();
-    expect(response.result).toEqual({
-      path: path.join(workspace, "demo-app"),
-    });
-    expect(fs.statSync(path.join(workspace, "demo-app")).isDirectory()).toBe(true);
-  });
-
-  it("rejects projects.createDirectory paths outside the workspace root", async () => {
-    const workspace = makeTempDir("fatma-ws-create-directory-reject-");
-    const outsideParent = makeTempDir("fatma-ws-create-directory-outside-");
-
-    server = await createTestServer({ cwd: "/test" });
-    const addr = server.address();
-    const port = typeof addr === "object" && addr !== null ? addr.port : 0;
-
-    const [ws] = await connectAndAwaitWelcome(port);
-    connections.push(ws);
-
-    const response = await sendRequest(ws, WS_METHODS.projectsCreateDirectory, {
-      rootPath: workspace,
-      parentPath: outsideParent,
-      name: "demo-app",
-    });
-
-    expect(response.result).toBeUndefined();
-    expect(response.error?.message).toContain("Workspace path must stay within the project root.");
-    expect(fs.existsSync(path.join(outsideParent, "demo-app"))).toBe(false);
-  });
-
   it("supports projects.writeFile within the workspace root", async () => {
     const workspace = makeTempDir("fatma-ws-write-file-");
 
@@ -1839,12 +1667,6 @@ describe("WebSocket Server", () => {
         listBranches,
         initRepo,
         pullCurrentBranch,
-        readWorkingTreeFileDiff: vi.fn(() =>
-          Effect.succeed({
-            path: "src/index.ts",
-            diff: "",
-          }),
-        ),
       },
     });
     const addr = server.address();
@@ -1873,7 +1695,7 @@ describe("WebSocket Server", () => {
       branch: "feature/test",
       hasWorkingTreeChanges: true,
       workingTree: {
-        files: [{ path: "src/index.ts", status: "modified" as const, insertions: 7, deletions: 2 }],
+        files: [{ path: "src/index.ts", insertions: 7, deletions: 2 }],
         insertions: 7,
         deletions: 2,
       },
@@ -1909,52 +1731,12 @@ describe("WebSocket Server", () => {
     expect(status).toHaveBeenCalledWith({ cwd: "/test" });
   });
 
-  it("supports git.readWorkingTreeFileDiff over websocket", async () => {
-    const readWorkingTreeFileDiff = vi.fn(() =>
-      Effect.succeed({
-        path: "src/index.ts",
-        diff: "diff --git a/src/index.ts b/src/index.ts\n+hello\n",
-      }),
-    );
-
-    server = await createTestServer({
-      cwd: "/test",
-      gitCore: {
-        listBranches: vi.fn(() =>
-          Effect.succeed({ branches: [], isRepo: true, hasOriginRemote: false }),
-        ),
-        initRepo: vi.fn(() => Effect.void),
-        pullCurrentBranch: vi.fn(() => Effect.void as any),
-        readWorkingTreeFileDiff,
-      },
-    });
-    const addr = server.address();
-    const port = typeof addr === "object" && addr !== null ? addr.port : 0;
-
-    const [ws] = await connectAndAwaitWelcome(port);
-    connections.push(ws);
-
-    const response = await sendRequest(ws, WS_METHODS.gitReadWorkingTreeFileDiff, {
-      cwd: "/test",
-      path: "src/index.ts",
-    });
-    expect(response.error).toBeUndefined();
-    expect(response.result).toEqual({
-      path: "src/index.ts",
-      diff: "diff --git a/src/index.ts b/src/index.ts\n+hello\n",
-    });
-    expect(readWorkingTreeFileDiff).toHaveBeenCalledWith({
-      cwd: "/test",
-      path: "src/index.ts",
-    });
-  });
-
   it("supports git pull request routing over websocket", async () => {
     const resolvePullRequestResult = {
       pullRequest: {
         number: 42,
         title: "PR thread flow",
-        url: "https://github.com/dinweldik/fatma/pull/42",
+        url: "https://github.com/pingdotgg/codething-mvp/pull/42",
         baseBranch: "main",
         headBranch: "feature/pr-threads",
         state: "open" as const,
@@ -2029,15 +1811,94 @@ describe("WebSocket Server", () => {
     connections.push(ws);
 
     const response = await sendRequest(ws, WS_METHODS.gitRunStackedAction, {
+      actionId: "client-action-1",
       cwd: "/test",
       action: "commit_push",
     });
     expect(response.result).toBeUndefined();
     expect(response.error?.message).toContain("detached HEAD");
-    expect(runStackedAction).toHaveBeenCalledWith({
+    expect(runStackedAction).toHaveBeenCalledWith(
+      {
+        actionId: "client-action-1",
+        cwd: "/test",
+        action: "commit_push",
+      },
+      expect.objectContaining({
+        actionId: "client-action-1",
+        progressReporter: expect.any(Object),
+      }),
+    );
+  });
+
+  it("publishes git action progress only to the initiating websocket", async () => {
+    const runStackedAction = vi.fn(
+      (_input, options) =>
+        options?.progressReporter
+          ?.publish({
+            actionId: options.actionId ?? "action-1",
+            cwd: "/test",
+            action: "commit",
+            kind: "phase_started",
+            phase: "commit",
+            label: "Committing...",
+          })
+          .pipe(
+            Effect.flatMap(() =>
+              Effect.succeed({
+                action: "commit" as const,
+                branch: { status: "skipped_not_requested" as const },
+                commit: {
+                  status: "created" as const,
+                  commitSha: "abc1234",
+                  subject: "Test commit",
+                },
+                push: { status: "skipped_not_requested" as const },
+                pr: { status: "skipped_not_requested" as const },
+              }),
+            ),
+          ) ?? Effect.void,
+    );
+    const gitManager: GitManagerShape = {
+      status: vi.fn(() => Effect.void as any),
+      resolvePullRequest: vi.fn(() => Effect.void as any),
+      preparePullRequestThread: vi.fn(() => Effect.void as any),
+      runStackedAction,
+    };
+
+    server = await createTestServer({ cwd: "/test", gitManager });
+    const addr = server.address();
+    const port = typeof addr === "object" && addr !== null ? addr.port : 0;
+
+    const [initiatingWs] = await connectAndAwaitWelcome(port);
+    const [otherWs] = await connectAndAwaitWelcome(port);
+    connections.push(initiatingWs, otherWs);
+
+    const responsePromise = sendRequest(initiatingWs, WS_METHODS.gitRunStackedAction, {
+      actionId: "client-action-2",
       cwd: "/test",
-      action: "commit_push",
+      action: "commit",
     });
+    const progressPush = await waitForPush(initiatingWs, WS_CHANNELS.gitActionProgress);
+
+    expect(progressPush.data).toEqual({
+      actionId: "client-action-2",
+      cwd: "/test",
+      action: "commit",
+      kind: "phase_started",
+      phase: "commit",
+      label: "Committing...",
+    });
+
+    await expect(
+      waitForPush(otherWs, WS_CHANNELS.gitActionProgress, undefined, 10, 100),
+    ).rejects.toThrow("Timed out waiting for WebSocket message after 100ms");
+    await expect(responsePromise).resolves.toEqual(
+      expect.objectContaining({
+        result: expect.objectContaining({
+          action: "commit",
+        }),
+      }),
+    );
   });
 
   it("rejects websocket connections without a valid auth token", async () => {

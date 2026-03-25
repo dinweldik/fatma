@@ -8,8 +8,7 @@ import {
   type OrchestrationSessionStatus,
 } from "@fatma/contracts";
 import {
-  getModelOptions,
-  normalizeModelSlug,
+  inferProviderForModel,
   resolveModelSlug,
   resolveModelSlugForProvider,
 } from "@fatma/shared/model";
@@ -168,6 +167,8 @@ function mapProjectsFromReadModel(
         (persistedExpandedProjectCwds.size > 0
           ? persistedExpandedProjectCwds.has(project.workspaceRoot)
           : true),
+      createdAt: project.createdAt,
+      updatedAt: project.updatedAt,
       scripts: project.scripts.map((script) => ({ ...script })),
     } satisfies Project;
   });
@@ -211,26 +212,20 @@ function toLegacySessionStatus(
 }
 
 function toLegacyProvider(providerName: string | null): ProviderKind {
-  if (providerName === "codex") {
+  if (providerName === "codex" || providerName === "claudeAgent") {
     return providerName;
   }
   return "codex";
 }
 
-const CODEX_MODEL_SLUGS = new Set<string>(getModelOptions("codex").map((option) => option.slug));
-
 function inferProviderForThreadModel(input: {
   readonly model: string;
   readonly sessionProviderName: string | null;
 }): ProviderKind {
-  if (input.sessionProviderName === "codex") {
+  if (input.sessionProviderName === "codex" || input.sessionProviderName === "claudeAgent") {
     return input.sessionProviderName;
   }
-  const normalizedCodex = normalizeModelSlug(input.model, "codex");
-  if (normalizedCodex && CODEX_MODEL_SLUGS.has(normalizedCodex)) {
-    return "codex";
-  }
-  return "codex";
+  return inferProviderForModel(input.model);
 }
 
 function resolveWsHttpOrigin(): string {
@@ -332,11 +327,14 @@ export function syncServerReadModel(state: AppState, readModel: OrchestrationRea
           id: proposedPlan.id,
           turnId: proposedPlan.turnId,
           planMarkdown: proposedPlan.planMarkdown,
+          implementedAt: proposedPlan.implementedAt,
+          implementationThreadId: proposedPlan.implementationThreadId,
           createdAt: proposedPlan.createdAt,
           updatedAt: proposedPlan.updatedAt,
         })),
         error: thread.session?.lastError ?? null,
         createdAt: thread.createdAt,
+        updatedAt: thread.updatedAt,
         latestTurn: thread.latestTurn,
         lastVisitedAt: existing?.lastVisitedAt ?? thread.updatedAt,
         branch: thread.branch,

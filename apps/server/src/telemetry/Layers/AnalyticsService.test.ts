@@ -1,7 +1,7 @@
 import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
-import { ConfigProvider, Effect, FileSystem, Layer } from "effect";
+import { ConfigProvider, Effect, Layer } from "effect";
 import * as HttpServer from "effect/unstable/http/HttpServer";
 import * as HttpServerRequest from "effect/unstable/http/HttpServerRequest";
 import * as HttpServerResponse from "effect/unstable/http/HttpServerResponse";
@@ -37,21 +37,18 @@ interface RecordedBatchBody {
 it.layer(NodeServices.layer)("AnalyticsService test", (it) => {
   it.effect("flush drains all buffered events across multiple batches", () =>
     Effect.gen(function* () {
-      const fileSystem = yield* FileSystem.FileSystem;
-      const stateDir = yield* fileSystem.makeTempDirectoryScoped({
-        prefix: "fatma-telemetry-flush-",
-      });
-
       const capturedRequests: Array<RecordedBatchRequest> = [];
-      const serverConfigLayer = ServerConfig.layerTest(process.cwd(), stateDir);
+      const serverConfigLayer = ServerConfig.layerTest(process.cwd(), {
+        prefix: "t3-telemetry-base-",
+      });
 
       const telemetryLayer = AnalyticsServiceLayerLive.pipe(Layer.provideMerge(serverConfigLayer));
       const configLayer = ConfigProvider.layer(
         ConfigProvider.fromUnknown({
-          FATMA_TELEMETRY_ENABLED: true,
-          FATMA_POSTHOG_KEY: "phc_test_key",
-          FATMA_POSTHOG_HOST: "",
-          FATMA_TELEMETRY_FLUSH_BATCH_SIZE: 20,
+          T3CODE_TELEMETRY_ENABLED: true,
+          T3CODE_POSTHOG_KEY: "phc_test_key",
+          T3CODE_POSTHOG_HOST: "",
+          T3CODE_TELEMETRY_FLUSH_BATCH_SIZE: 20,
         }),
       );
       const batchServerLayer = HttpServer.serve(

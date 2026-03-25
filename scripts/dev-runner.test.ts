@@ -1,26 +1,24 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import { homedir } from "node:os";
 import { resolve } from "node:path";
 import { assert, describe, it } from "@effect/vitest";
 import { Effect } from "effect";
 
 import {
-  DEFAULT_DEV_STATE_DIR,
   createDevRunnerEnv,
   findFirstAvailableOffset,
-  normalizeImplicitHostFlag,
   resolveModePortOffsets,
-  resolveRunnerHost,
   resolveOffset,
 } from "./dev-runner.ts";
 
 it.layer(NodeServices.layer)("dev-runner", (it) => {
   describe("resolveOffset", () => {
-    it.effect("uses explicit FATMA_PORT_OFFSET when provided", () =>
+    it.effect("uses explicit T3CODE_PORT_OFFSET when provided", () =>
       Effect.sync(() => {
         const result = resolveOffset({ portOffset: 12, devInstance: undefined });
         assert.deepStrictEqual(result, {
           offset: 12,
-          source: "FATMA_PORT_OFFSET=12",
+          source: "T3CODE_PORT_OFFSET=12",
         });
       }),
     );
@@ -42,78 +40,30 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
           }),
         );
 
-        assert.ok(error.includes("Invalid FATMA_PORT_OFFSET"));
-      }),
-    );
-  });
-
-  describe("normalizeImplicitHostFlag", () => {
-    it.effect("treats bare --host as 0.0.0.0", () =>
-      Effect.sync(() => {
-        const normalized = normalizeImplicitHostFlag(["dev:web", "--host"]);
-        assert.deepStrictEqual(normalized, ["dev:web", "--host", "0.0.0.0"]);
-      }),
-    );
-
-    it.effect("inserts 0.0.0.0 when --host is followed by another flag", () =>
-      Effect.sync(() => {
-        const normalized = normalizeImplicitHostFlag(["dev:web", "--host", "--dry-run"]);
-        assert.deepStrictEqual(normalized, ["dev:web", "--host", "0.0.0.0", "--dry-run"]);
-      }),
-    );
-
-    it.effect("keeps explicit host values unchanged", () =>
-      Effect.sync(() => {
-        const normalized = normalizeImplicitHostFlag(["dev:web", "--host", "127.0.0.1"]);
-        assert.deepStrictEqual(normalized, ["dev:web", "--host", "127.0.0.1"]);
-      }),
-    );
-  });
-
-  describe("resolveRunnerHost", () => {
-    it.effect("defaults web/server modes to wildcard host", () =>
-      Effect.sync(() => {
-        assert.equal(resolveRunnerHost("dev", undefined), "0.0.0.0");
-        assert.equal(resolveRunnerHost("dev:web", undefined), "0.0.0.0");
-        assert.equal(resolveRunnerHost("dev:server", undefined), "0.0.0.0");
-      }),
-    );
-
-    it.effect("keeps desktop mode local by default", () =>
-      Effect.sync(() => {
-        assert.equal(resolveRunnerHost("dev:desktop", undefined), undefined);
-      }),
-    );
-
-    it.effect("respects explicit host overrides", () =>
-      Effect.sync(() => {
-        assert.equal(resolveRunnerHost("dev:web", "127.0.0.1"), "127.0.0.1");
+        assert.ok(error.includes("Invalid T3CODE_PORT_OFFSET"));
       }),
     );
   });
 
   describe("createDevRunnerEnv", () => {
-    it.effect("defaults state dir to ~/.fatma/dev when not provided", () =>
+    it.effect("defaults T3CODE_HOME to ~/.t3 when not provided", () =>
       Effect.gen(function* () {
-        const [env, defaultStateDir] = yield* Effect.all([
-          createDevRunnerEnv({
-            mode: "dev",
-            baseEnv: {},
-            serverOffset: 0,
-            webOffset: 0,
-            stateDir: undefined,
-            authToken: undefined,
-            noBrowser: undefined,
-            autoBootstrapProjectFromCwd: undefined,
-            logWebSocketEvents: undefined,
-            host: undefined,
-            port: undefined,
-            devUrl: undefined,
-          }),
-          DEFAULT_DEV_STATE_DIR,
-        ]);
+        const env = yield* createDevRunnerEnv({
+          mode: "dev",
+          baseEnv: {},
+          serverOffset: 0,
+          webOffset: 0,
+          t3Home: undefined,
+          authToken: undefined,
+          noBrowser: undefined,
+          autoBootstrapProjectFromCwd: undefined,
+          logWebSocketEvents: undefined,
+          host: undefined,
+          port: undefined,
+          devUrl: undefined,
+        });
 
-        assert.equal(env.FATMA_STATE_DIR, defaultStateDir);
+        assert.equal(env.T3CODE_HOME, resolve(homedir(), ".t3"));
       }),
     );
 
@@ -124,7 +74,7 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
           baseEnv: {},
           serverOffset: 0,
           webOffset: 0,
-          stateDir: "/tmp/override-state",
+          t3Home: "/tmp/custom-t3",
           authToken: "secret",
           noBrowser: true,
           autoBootstrapProjectFromCwd: false,
@@ -134,13 +84,13 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
           devUrl: new URL("http://localhost:7331"),
         });
 
-        assert.equal(env.FATMA_STATE_DIR, resolve("/tmp/override-state"));
-        assert.equal(env.FATMA_PORT, "4222");
+        assert.equal(env.T3CODE_HOME, resolve("/tmp/custom-t3"));
+        assert.equal(env.T3CODE_PORT, "4222");
         assert.equal(env.VITE_WS_URL, "ws://localhost:4222");
-        assert.equal(env.FATMA_NO_BROWSER, "1");
-        assert.equal(env.FATMA_AUTO_BOOTSTRAP_PROJECT_FROM_CWD, "0");
-        assert.equal(env.FATMA_LOG_WS_EVENTS, "1");
-        assert.equal(env.FATMA_HOST, "0.0.0.0");
+        assert.equal(env.T3CODE_NO_BROWSER, "1");
+        assert.equal(env.T3CODE_AUTO_BOOTSTRAP_PROJECT_FROM_CWD, "0");
+        assert.equal(env.T3CODE_LOG_WS_EVENTS, "1");
+        assert.equal(env.T3CODE_HOST, "0.0.0.0");
         assert.equal(env.VITE_DEV_SERVER_URL, "http://localhost:7331/");
       }),
     );
@@ -150,11 +100,11 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
         const env = yield* createDevRunnerEnv({
           mode: "dev",
           baseEnv: {
-            FATMA_LOG_WS_EVENTS: "keep-me-out",
+            T3CODE_LOG_WS_EVENTS: "keep-me-out",
           },
           serverOffset: 0,
           webOffset: 0,
-          stateDir: undefined,
+          t3Home: undefined,
           authToken: undefined,
           noBrowser: undefined,
           autoBootstrapProjectFromCwd: undefined,
@@ -164,8 +114,8 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
           devUrl: undefined,
         });
 
-        assert.equal(env.FATMA_MODE, "web");
-        assert.equal(env.FATMA_LOG_WS_EVENTS, undefined);
+        assert.equal(env.T3CODE_MODE, "web");
+        assert.equal(env.T3CODE_LOG_WS_EVENTS, undefined);
       }),
     );
 
@@ -176,7 +126,7 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
           baseEnv: {},
           serverOffset: 0,
           webOffset: 0,
-          stateDir: undefined,
+          t3Home: undefined,
           authToken: undefined,
           noBrowser: undefined,
           autoBootstrapProjectFromCwd: undefined,
@@ -186,7 +136,28 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
           devUrl: undefined,
         });
 
-        assert.equal(env.FATMA_LOG_WS_EVENTS, "0");
+        assert.equal(env.T3CODE_LOG_WS_EVENTS, "0");
+      }),
+    );
+
+    it.effect("uses custom t3Home when provided", () =>
+      Effect.gen(function* () {
+        const env = yield* createDevRunnerEnv({
+          mode: "dev",
+          baseEnv: {},
+          serverOffset: 0,
+          webOffset: 0,
+          t3Home: "/tmp/my-t3",
+          authToken: undefined,
+          noBrowser: undefined,
+          autoBootstrapProjectFromCwd: undefined,
+          logWebSocketEvents: undefined,
+          host: undefined,
+          port: undefined,
+          devUrl: undefined,
+        });
+
+        assert.equal(env.T3CODE_HOME, resolve("/tmp/my-t3"));
       }),
     );
   });
@@ -207,7 +178,7 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
 
     it.effect("advances until all required ports are available", () =>
       Effect.gen(function* () {
-        const taken = new Set([3774, 5774, 3775, 5775]);
+        const taken = new Set([3773, 5733, 3774, 5734]);
         const offset = yield* findFirstAvailableOffset({
           startOffset: 0,
           requireServerPort: true,
@@ -236,7 +207,7 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
   describe("resolveModePortOffsets", () => {
     it.effect("uses a shared fallback offset for dev mode", () =>
       Effect.gen(function* () {
-        const taken = new Set([3774, 5774]);
+        const taken = new Set([3773, 5733]);
         const offsets = yield* resolveModePortOffsets({
           mode: "dev",
           startOffset: 0,
@@ -266,7 +237,7 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
 
     it.effect("shifts only server offset for dev:server", () =>
       Effect.gen(function* () {
-        const taken = new Set([3774]);
+        const taken = new Set([3773]);
         const offsets = yield* resolveModePortOffsets({
           mode: "dev:server",
           startOffset: 0,

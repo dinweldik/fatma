@@ -11,6 +11,7 @@ import {
   type CanonicalRequestType,
   type ProviderEvent,
   type ProviderRuntimeEvent,
+  type ThreadTokenUsageSnapshot,
   type ProviderUserInputAnswers,
   RuntimeItemId,
   RuntimeRequestId,
@@ -109,6 +110,56 @@ function asNumber(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
+function normalizeCodexTokenUsage(value: unknown): ThreadTokenUsageSnapshot | undefined {
+  const usage = asObject(value);
+  const totalUsage = asObject(usage?.total_token_usage ?? usage?.total);
+  const lastUsage = asObject(usage?.last_token_usage ?? usage?.last);
+
+  const totalProcessedTokens =
+    asNumber(totalUsage?.total_tokens) ?? asNumber(totalUsage?.totalTokens);
+  const usedTokens =
+    asNumber(lastUsage?.total_tokens) ?? asNumber(lastUsage?.totalTokens) ?? totalProcessedTokens;
+  if (usedTokens === undefined || usedTokens <= 0) {
+    return undefined;
+  }
+
+  const maxTokens = asNumber(usage?.model_context_window) ?? asNumber(usage?.modelContextWindow);
+  const inputTokens = asNumber(lastUsage?.input_tokens) ?? asNumber(lastUsage?.inputTokens);
+  const cachedInputTokens =
+    asNumber(lastUsage?.cached_input_tokens) ?? asNumber(lastUsage?.cachedInputTokens);
+  const outputTokens = asNumber(lastUsage?.output_tokens) ?? asNumber(lastUsage?.outputTokens);
+  const reasoningOutputTokens =
+    asNumber(lastUsage?.reasoning_output_tokens) ?? asNumber(lastUsage?.reasoningOutputTokens);
+
+  return {
+    usedTokens,
+    ...(totalProcessedTokens !== undefined && totalProcessedTokens > usedTokens
+      ? { totalProcessedTokens }
+      : {}),
+    ...(maxTokens !== undefined ? { maxTokens } : {}),
+    ...(inputTokens !== undefined ? { inputTokens } : {}),
+    ...(cachedInputTokens !== undefined ? { cachedInputTokens } : {}),
+    ...(outputTokens !== undefined ? { outputTokens } : {}),
+    ...(reasoningOutputTokens !== undefined ? { reasoningOutputTokens } : {}),
+    ...(usedTokens !== undefined ? { lastUsedTokens: usedTokens } : {}),
+    ...(inputTokens !== undefined ? { lastInputTokens: inputTokens } : {}),
+    ...(cachedInputTokens !== undefined ? { lastCachedInputTokens: cachedInputTokens } : {}),
+    ...(outputTokens !== undefined ? { lastOutputTokens: outputTokens } : {}),
+    ...(reasoningOutputTokens !== undefined
+      ? { lastReasoningOutputTokens: reasoningOutputTokens }
+      : {}),
+    compactsAutomatically: true,
+  };
+}
+
+function toTurnId(value: string | undefined): TurnId | undefined {
+  return value?.trim() ? TurnId.makeUnsafe(value) : undefined;
+}
+
+function toProviderItemId(value: string | undefined): ProviderItemId | undefined {
+  return value?.trim() ? ProviderItemId.makeUnsafe(value) : undefined;
+}
+
 function toTurnStatus(value: unknown): "completed" | "failed" | "cancelled" | "interrupted" {
   switch (value) {
     case "completed":
@@ -164,7 +215,7 @@ function itemTitle(itemType: CanonicalItemType): string | undefined {
     case "plan":
       return "Plan";
     case "command_execution":
-      return "Command run";
+      return "Ran command";
     case "file_change":
       return "File change";
     case "mcp_tool_call":
@@ -415,27 +466,27 @@ function codexEventBase(
 ): Omit<ProviderRuntimeEvent, "type" | "payload"> {
   const payload = asObject(event.payload);
   const msg = codexEventMessage(payload);
-  const turnId = asString(msg?.turn_id) ?? asString(msg?.turnId);
-  const itemId = asString(msg?.item_id) ?? asString(msg?.itemId);
+  const turnId = event.turnId ?? toTurnId(asString(msg?.turn_id) ?? asString(msg?.turnId));
+  const itemId = event.itemId ?? toProviderItemId(asString(msg?.item_id) ?? asString(msg?.itemId));
   const requestId = asString(msg?.request_id) ?? asString(msg?.requestId);
   const base = runtimeEventBase(event, canonicalThreadId);
   const providerRefs = base.providerRefs
     ? {
         ...base.providerRefs,
         ...(turnId ? { providerTurnId: turnId } : {}),
-        ...(itemId ? { providerItemId: ProviderItemId.makeUnsafe(itemId) } : {}),
+        ...(itemId ? { providerItemId: itemId } : {}),
         ...(requestId ? { providerRequestId: requestId } : {}),
       }
     : {
         ...(turnId ? { providerTurnId: turnId } : {}),
-        ...(itemId ? { providerItemId: ProviderItemId.makeUnsafe(itemId) } : {}),
+        ...(itemId ? { providerItemId: itemId } : {}),
         ...(requestId ? { providerRequestId: requestId } : {}),
       };
 
   return {
     ...base,
-    ...(turnId ? { turnId: TurnId.makeUnsafe(turnId) } : {}),
-    ...(itemId ? { itemId: asRuntimeItemId(ProviderItemId.makeUnsafe(itemId)) } : {}),
+    ...(turnId ? { turnId } : {}),
+    ...(itemId ? { itemId: asRuntimeItemId(itemId) } : {}),
     ...(requestId ? { requestId: asRuntimeRequestId(requestId) } : {}),
     ...(Object.keys(providerRefs).length > 0 ? { providerRefs } : {}),
   };
@@ -700,12 +751,17 @@ function mapToRuntimeEvents(
   }
 
   if (event.method === "thread/tokenUsage/updated") {
+    const tokenUsage = asObject(payload?.tokenUsage);
+    const normalizedUsage = normalizeCodexTokenUsage(tokenUsage ?? event.payload);
+    if (!normalizedUsage) {
+      return [];
+    }
     return [
       {
         type: "thread.token-usage.updated",
         ...runtimeEventBase(event, canonicalThreadId),
         payload: {
-          usage: event.payload ?? {},
+          usage: normalizedUsage,
         },
       },
     ];
@@ -1328,7 +1384,7 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
           (attachment) =>
             Effect.gen(function* () {
               const attachmentPath = resolveAttachmentPath({
-                stateDir: serverConfig.stateDir,
+                attachmentsDir: serverConfig.attachmentsDir,
                 attachment,
               });
               if (!attachmentPath) {

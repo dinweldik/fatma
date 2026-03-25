@@ -1,24 +1,21 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useState } from "react";
-import { type ProviderKind, type ServerConfig as ServerRuntimeConfig } from "@fatma/contracts";
+import { ChevronDownIcon, PlusIcon, RotateCcwIcon, Undo2Icon, XIcon } from "lucide-react";
+import { type ReactNode, useCallback, useEffect, useState } from "react";
+import { type ProviderKind, type ServerConfig as ServerRuntimeConfig, DEFAULT_GIT_TEXT_GENERATION_MODEL } from "@fatma/contracts";
 import { getModelOptions, normalizeModelSlug } from "@fatma/shared/model";
-import { ZapIcon } from "lucide-react";
-
 import {
-  APP_SERVICE_TIER_OPTIONS,
+  getAppModelOptions,
+  getCustomModelsForProvider,
+  getDefaultCustomModelsForProvider,
   MAX_CUSTOM_MODEL_LENGTH,
-  shouldShowFastTierIcon,
+  MODEL_PROVIDER_SETTINGS,
+  patchCustomModels,
   useAppSettings,
 } from "../appSettings";
-import { isElectron } from "../env";
-import { useMobileViewport } from "../mobileViewport";
-import { useTheme } from "../hooks/useTheme";
-import { serverConfigQueryOptions, serverQueryKeys } from "../lib/serverReactQuery";
-import { ensureNativeApi } from "../nativeApi";
-import { usePwa } from "../pwa";
-import { preferredTerminalEditor } from "../terminal-links";
+import { APP_VERSION } from "../branding";
 import { Button } from "../components/ui/button";
+import { Collapsible, CollapsibleContent } from "../components/ui/collapsible";
 import { Input } from "../components/ui/input";
 import {
   Select,
@@ -27,9 +24,19 @@ import {
   SelectTrigger,
   SelectValue,
 } from "../components/ui/select";
+import { SidebarTrigger } from "../components/ui/sidebar";
 import { Switch } from "../components/ui/switch";
-import { SidebarInset } from "~/components/ui/sidebar";
+import { SidebarInset } from "../components/ui/sidebar";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../components/ui/tooltip";
+import { resolveAndPersistPreferredEditor } from "../editorPreferences";
+import { isElectron } from "../env";
+import { useMobileViewport } from "../mobileViewport";
+import { useTheme } from "../hooks/useTheme";
+import { serverConfigQueryOptions, serverQueryKeys } from "../lib/serverReactQuery";
 import { cn } from "../lib/utils";
+import { ensureNativeApi, readNativeApi } from "../nativeApi";
+import { usePwa } from "../pwa";
+import { preferredTerminalEditor } from "../terminal-links";
 
 const THEME_OPTIONS = [
   {
@@ -49,51 +56,6 @@ const THEME_OPTIONS = [
   },
 ] as const;
 
-const MODEL_PROVIDER_SETTINGS: Array<{
-  provider: ProviderKind;
-  title: string;
-  description: string;
-  placeholder: string;
-  example: string;
-}> = [
-  {
-    provider: "codex",
-    title: "Codex",
-    description: "Save additional Codex model slugs for the picker and `/model` command.",
-    placeholder: "your-codex-model-slug",
-    example: "gpt-6.7-codex-ultra-preview",
-  },
-] as const;
-
-function getCustomModelsForProvider(
-  settings: ReturnType<typeof useAppSettings>["settings"],
-  provider: ProviderKind,
-) {
-  switch (provider) {
-    case "codex":
-    default:
-      return settings.customCodexModels;
-  }
-}
-
-function getDefaultCustomModelsForProvider(
-  defaults: ReturnType<typeof useAppSettings>["defaults"],
-  provider: ProviderKind,
-) {
-  switch (provider) {
-    case "codex":
-    default:
-      return defaults.customCodexModels;
-  }
-}
-
-function patchCustomModels(provider: ProviderKind, models: string[]) {
-  switch (provider) {
-    case "codex":
-    default:
-      return { customCodexModels: models };
-  }
-}
 
 function toErrorMessage(error: unknown, fallback: string): string {
   if (error instanceof Error && error.message.trim().length > 0) {
@@ -131,7 +93,6 @@ function SettingsRouteView() {
 
   const codexBinaryPath = settings.codexBinaryPath;
   const codexHomePath = settings.codexHomePath;
-  const codexServiceTier = settings.codexServiceTier;
   const keybindingsConfigPath = serverConfigQuery.data?.keybindingsConfigPath ?? null;
   const telegramNotifications = serverConfigQuery.data?.telegramNotifications ?? null;
 
@@ -562,43 +523,6 @@ function SettingsRouteView() {
               </div>
 
               <div className="space-y-5">
-                <label className="block space-y-1">
-                  <span className="text-xs font-medium text-foreground">Default service tier</span>
-                  <Select
-                    items={APP_SERVICE_TIER_OPTIONS.map((option) => ({
-                      label: option.label,
-                      value: option.value,
-                    }))}
-                    value={codexServiceTier}
-                    onValueChange={(value) => {
-                      if (!value) return;
-                      updateSettings({ codexServiceTier: value });
-                    }}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectPopup alignItemWithTrigger={false}>
-                      {APP_SERVICE_TIER_OPTIONS.map((option) => (
-                        <SelectItem key={option.value} value={option.value}>
-                          <div className="flex min-w-0 items-center gap-2">
-                            {option.value === "fast" ? (
-                              <ZapIcon className="size-3.5 text-amber-500" />
-                            ) : (
-                              <span className="size-3.5 shrink-0" aria-hidden="true" />
-                            )}
-                            <span className="truncate">{option.label}</span>
-                          </div>
-                        </SelectItem>
-                      ))}
-                    </SelectPopup>
-                  </Select>
-                  <span className="text-xs text-muted-foreground">
-                    {APP_SERVICE_TIER_OPTIONS.find((option) => option.value === codexServiceTier)
-                      ?.description ?? "Use Codex defaults without forcing a service tier."}
-                  </span>
-                </label>
-
                 {MODEL_PROVIDER_SETTINGS.map((providerSettings) => {
                   const provider = providerSettings.provider;
                   const customModels = getCustomModelsForProvider(settings, provider);
@@ -697,10 +621,6 @@ function SettingsRouteView() {
                                   className="flex items-center justify-between gap-3 rounded-lg border border-border bg-background px-3 py-2"
                                 >
                                   <div className="flex min-w-0 flex-1 items-center gap-2">
-                                    {provider === "codex" &&
-                                    shouldShowFastTierIcon(slug, codexServiceTier) ? (
-                                      <ZapIcon className="size-3.5 shrink-0 text-amber-500" />
-                                    ) : null}
                                     <code className="min-w-0 flex-1 truncate text-xs text-foreground">
                                       {slug}
                                     </code>

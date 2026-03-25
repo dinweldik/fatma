@@ -19,7 +19,7 @@ type ReconnectListener = () => void;
 interface PendingRequest {
   resolve: (result: unknown) => void;
   reject: (error: Error) => void;
-  timeout: ReturnType<typeof setTimeout>;
+  timeout: ReturnType<typeof setTimeout> | null;
   method: string;
   queued: boolean;
 }
@@ -38,7 +38,7 @@ interface StateSubscribeOptions {
 }
 
 interface RequestOptions {
-  readonly timeoutMs?: number;
+  readonly timeoutMs?: number | null;
 }
 
 export type TransportState = "connecting" | "open" | "reconnecting" | "closed" | "disposed";
@@ -149,8 +149,8 @@ export class WsTransport {
     this.connect();
   }
 
-  async request<T = unknown>(method: string, params?: unknown): Promise<T> {
-    return this.requestInternal<T>(method, params);
+  async request<T = unknown>(method: string, params?: unknown, options?: RequestOptions): Promise<T> {
+    return this.requestInternal<T>(method, params, options);
   }
 
   subscribe<C extends WsPushChannel>(
@@ -218,7 +218,9 @@ export class WsTransport {
     this.clearReconnectTimer();
     this.clearStaleConnectionTimer();
     for (const [id, pending] of this.pending) {
-      clearTimeout(pending.timeout);
+      if (pending.timeout !== null) {
+        clearTimeout(pending.timeout);
+      }
       pending.reject(new Error("Transport disposed"));
       this.pending.delete(id);
     }
@@ -243,12 +245,15 @@ export class WsTransport {
     const encoded = JSON.stringify(message);
 
     return new Promise<T>((resolve, reject) => {
-      const timeoutMs = options?.timeoutMs ?? REQUEST_TIMEOUT_MS;
-      const timeout = setTimeout(() => {
-        this.pending.delete(id);
-        this.removeQueuedRequest(id);
-        reject(new Error(`Request timed out: ${method}`));
-      }, timeoutMs);
+      const timeoutMs = options?.timeoutMs === undefined ? REQUEST_TIMEOUT_MS : options.timeoutMs;
+      const timeout =
+        timeoutMs === null
+          ? null
+          : setTimeout(() => {
+              this.pending.delete(id);
+              this.removeQueuedRequest(id);
+              reject(new Error(`Request timed out: ${method}`));
+            }, timeoutMs);
 
       this.pending.set(id, {
         resolve: resolve as (result: unknown) => void,
@@ -303,8 +308,15 @@ export class WsTransport {
       if (this.ws === ws) {
         this.ws = null;
       }
+      this.outboundQueue.length = 0;
       this.clearStaleConnectionTimer();
-      this.rejectInflightRequests();
+      for (const [id, pending] of this.pending) {
+        if (pending.timeout !== null) {
+          clearTimeout(pending.timeout);
+        }
+        this.pending.delete(id);
+        pending.reject(new Error("WebSocket connection closed."));
+      }
 
       if (this.disposed) {
         this.transitionTo("disposed");
@@ -321,10 +333,8 @@ export class WsTransport {
     });
 
     ws.addEventListener("error", (event) => {
-      console.warn("WebSocket connection error", {
-        type: event.type,
-        url: this.url,
-      });
+      // Log WebSocket errors for debugging (close event will follow)
+      console.warn("WebSocket connection error", { type: event.type, url: this.url });
     });
   }
 
@@ -360,7 +370,9 @@ export class WsTransport {
       return;
     }
 
-    clearTimeout(pending.timeout);
+    if (pending.timeout !== null) {
+      clearTimeout(pending.timeout);
+    }
     this.pending.delete(message.id);
 
     if (message.error) {

@@ -1,5 +1,6 @@
 import type {
   GitCheckoutInput,
+  GitActionProgressEvent,
   GitCommitInput,
   GitCommitResult,
   GitCreateBranchInput,
@@ -180,6 +181,7 @@ export interface NativeApi {
       input: GitReadWorkingTreeFileDiffInput,
     ) => Promise<GitReadWorkingTreeFileDiffResult>;
     runStackedAction: (input: GitRunStackedActionInput) => Promise<GitRunStackedActionResult>;
+    onActionProgress: (callback: (event: GitActionProgressEvent) => void) => () => void;
   };
   contextMenu: {
     show: <T extends string>(

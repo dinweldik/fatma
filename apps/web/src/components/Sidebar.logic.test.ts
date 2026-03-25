@@ -2,16 +2,24 @@ import { ProjectId, ThreadId } from "@fatma/contracts";
 import { describe, expect, it } from "vitest";
 
 import {
-  buildProjectThreadLists,
-  buildThreadsByProjectId,
-  findNewestThread,
+  getVisibleThreadsForProject,
+  getProjectSortTimestamp,
   hasUnseenCompletion,
-  resolveSidebarThreadState,
+  resolveProjectStatusIndicator,
+  resolveSidebarNewThreadEnvMode,
+  resolveThreadRowClassName,
   resolveThreadStatusPill,
   compareThreadsByCreatedAtDescending,
   shouldClearThreadSelectionOnMouseDown,
-  visibleThreadsForProject,
+  sortProjectsForSidebar,
+  sortThreadsForSidebar,
 } from "./Sidebar.logic";
+import {
+  DEFAULT_INTERACTION_MODE,
+  DEFAULT_RUNTIME_MODE,
+  type Project,
+  type Thread,
+} from "../types";
 
 function makeLatestTurn(overrides?: {
   completedAt?: string | null;
@@ -66,6 +74,25 @@ describe("shouldClearThreadSelectionOnMouseDown", () => {
     } as unknown as HTMLElement;
 
     expect(shouldClearThreadSelectionOnMouseDown(unrelated)).toBe(true);
+  });
+});
+
+describe("resolveSidebarNewThreadEnvMode", () => {
+  it("uses the app default when the caller does not request a specific mode", () => {
+    expect(
+      resolveSidebarNewThreadEnvMode({
+        defaultEnvMode: "worktree",
+      }),
+    ).toBe("worktree");
+  });
+
+  it("preserves an explicit requested mode over the app default", () => {
+    expect(
+      resolveSidebarNewThreadEnvMode({
+        requestedEnvMode: "local",
+        defaultEnvMode: "worktree",
+      }),
+    ).toBe("local");
   });
 });
 
@@ -127,6 +154,8 @@ describe("resolveThreadStatusPill", () => {
               createdAt: "2026-03-09T10:00:00.000Z",
               updatedAt: "2026-03-09T10:05:00.000Z",
               planMarkdown: "# Plan",
+              implementedAt: null,
+              implementationThreadId: null,
             },
           ],
           session: {
@@ -139,6 +168,35 @@ describe("resolveThreadStatusPill", () => {
         hasPendingUserInput: false,
       }),
     ).toMatchObject({ label: "Plan Ready", pulse: false });
+  });
+
+  it("does not show plan ready after the proposed plan was implemented elsewhere", () => {
+    expect(
+      resolveThreadStatusPill({
+        thread: {
+          ...baseThread,
+          latestTurn: makeLatestTurn(),
+          proposedPlans: [
+            {
+              id: "plan-1" as never,
+              turnId: "turn-1" as never,
+              createdAt: "2026-03-09T10:00:00.000Z",
+              updatedAt: "2026-03-09T10:05:00.000Z",
+              planMarkdown: "# Plan",
+              implementedAt: "2026-03-09T10:06:00.000Z",
+              implementationThreadId: "thread-implement" as never,
+            },
+          ],
+          session: {
+            ...baseThread.session,
+            status: "ready",
+            orchestrationStatus: "ready",
+          },
+        },
+        hasPendingApprovals: false,
+        hasPendingUserInput: false,
+      }),
+    ).toMatchObject({ label: "Completed", pulse: false });
   });
 
   it("shows completed when there is an unseen completion and no active blocker", () => {
@@ -162,131 +220,411 @@ describe("resolveThreadStatusPill", () => {
   });
 });
 
-describe("resolveSidebarThreadState", () => {
-  it("derives pending user-input state from thread activities", () => {
-    const state = resolveSidebarThreadState({
-      interactionMode: "default",
-      latestTurn: null,
-      lastVisitedAt: undefined,
-      proposedPlans: [],
-      session: null,
-      activities: [
-        {
-          id: "event-1" as never,
-          tone: "approval",
-          kind: "user-input.requested",
-          summary: "Need input",
-          payload: {
-            requestId: "request-1",
-            questions: [
-              {
-                id: "question-1",
-                header: "Question",
-                question: "Pick one",
-                options: [{ label: "Yes", description: "Approve" }],
-              },
-            ],
-          },
-          turnId: null,
-          createdAt: "2026-03-09T10:00:00.000Z",
-        },
-      ],
-    });
+describe("resolveThreadRowClassName", () => {
+  it("uses the darker selected palette when a thread is both selected and active", () => {
+    const className = resolveThreadRowClassName({ isActive: true, isSelected: true });
+    expect(className).toContain("bg-primary/22");
+    expect(className).toContain("hover:bg-primary/26");
+    expect(className).toContain("dark:bg-primary/30");
+    expect(className).not.toContain("bg-accent/85");
+  });
 
-    expect(state.hasPendingApprovals).toBe(false);
-    expect(state.hasPendingUserInput).toBe(true);
-    expect(state.statusPill).toMatchObject({ label: "Awaiting Input", pulse: false });
+  it("uses selected hover colors for selected threads", () => {
+    const className = resolveThreadRowClassName({ isActive: false, isSelected: true });
+    expect(className).toContain("bg-primary/15");
+    expect(className).toContain("hover:bg-primary/19");
+    expect(className).toContain("dark:bg-primary/22");
+    expect(className).not.toContain("hover:bg-accent");
+  });
+
+  it("keeps the accent palette for active-only threads", () => {
+    const className = resolveThreadRowClassName({ isActive: true, isSelected: false });
+    expect(className).toContain("bg-accent/85");
+    expect(className).toContain("hover:bg-accent");
   });
 });
 
-describe("sidebar thread derivation", () => {
-  type DerivedThread = {
-    id: ThreadId;
-    projectId: ProjectId;
-    createdAt: string;
-  };
-  const project1 = ProjectId.makeUnsafe("project-1");
-  const project2 = ProjectId.makeUnsafe("project-2");
-  const project3 = ProjectId.makeUnsafe("project-3");
-  const threadA: DerivedThread = {
-    id: ThreadId.makeUnsafe("thread-a"),
-    projectId: project1,
-    createdAt: "2026-03-09T10:01:00.000Z",
-  };
-  const threadB: DerivedThread = {
-    id: ThreadId.makeUnsafe("thread-b"),
-    projectId: project1,
-    createdAt: "2026-03-09T10:03:00.000Z",
-  };
-  const threadC: DerivedThread = {
-    id: ThreadId.makeUnsafe("thread-c"),
-    projectId: project2,
-    createdAt: "2026-03-09T10:02:00.000Z",
-  };
-
-  it("sorts threads by newest first", () => {
-    expect(
-      [threadA, threadB].toSorted(compareThreadsByCreatedAtDescending).map((thread) => thread.id),
-    ).toEqual(["thread-b", "thread-a"]);
+describe("resolveProjectStatusIndicator", () => {
+  it("returns null when no threads have a notable status", () => {
+    expect(resolveProjectStatusIndicator([null, null])).toBeNull();
   });
 
-  it("groups and sorts threads once per project", () => {
-    const grouped = buildThreadsByProjectId([threadA, threadB, threadC]);
-
-    expect(grouped.get(project1)?.map((thread) => thread.id)).toEqual([threadB.id, threadA.id]);
-    expect(grouped.get(project2)?.map((thread) => thread.id)).toEqual([threadC.id]);
+  it("surfaces the highest-priority actionable state across project threads", () => {
+    expect(
+      resolveProjectStatusIndicator([
+        {
+          label: "Completed",
+          colorClass: "text-emerald-600",
+          dotClass: "bg-emerald-500",
+          pulse: false,
+        },
+        {
+          label: "Pending Approval",
+          colorClass: "text-amber-600",
+          dotClass: "bg-amber-500",
+          pulse: false,
+        },
+        {
+          label: "Working",
+          colorClass: "text-sky-600",
+          dotClass: "bg-sky-500",
+          pulse: true,
+        },
+      ]),
+    ).toMatchObject({ label: "Pending Approval", dotClass: "bg-amber-500" });
   });
 
-  it("slices project thread previews without recomputing inline render logic", () => {
-    const grouped = buildThreadsByProjectId([threadA, threadB, threadC]);
-
+  it("prefers plan-ready over completed when no stronger action is needed", () => {
     expect(
-      visibleThreadsForProject({
-        projectId: project1,
-        previewLimit: 1,
-        expandedProjectIds: new Set(),
-        threadsByProjectId: grouped,
+      resolveProjectStatusIndicator([
+        {
+          label: "Completed",
+          colorClass: "text-emerald-600",
+          dotClass: "bg-emerald-500",
+          pulse: false,
+        },
+        {
+          label: "Plan Ready",
+          colorClass: "text-violet-600",
+          dotClass: "bg-violet-500",
+          pulse: false,
+        },
+      ]),
+    ).toMatchObject({ label: "Plan Ready", dotClass: "bg-violet-500" });
+  });
+});
+
+describe("getVisibleThreadsForProject", () => {
+  it("includes the active thread even when it falls below the folded preview", () => {
+    const threads = Array.from({ length: 8 }, (_, index) =>
+      makeThread({
+        id: ThreadId.makeUnsafe(`thread-${index + 1}`),
+        title: `Thread ${index + 1}`,
       }),
-    ).toMatchObject({
-      hasHiddenThreads: true,
-      hiddenThreadCount: 1,
-      isExpanded: false,
-      visibleThreads: [{ id: "thread-b" }],
+    );
+
+    const result = getVisibleThreadsForProject({
+      threads,
+      activeThreadId: ThreadId.makeUnsafe("thread-8"),
+      isThreadListExpanded: false,
+      previewLimit: 6,
     });
+
+    expect(result.hasHiddenThreads).toBe(true);
+    expect(result.visibleThreads.map((thread) => thread.id)).toEqual([
+      ThreadId.makeUnsafe("thread-1"),
+      ThreadId.makeUnsafe("thread-2"),
+      ThreadId.makeUnsafe("thread-3"),
+      ThreadId.makeUnsafe("thread-4"),
+      ThreadId.makeUnsafe("thread-5"),
+      ThreadId.makeUnsafe("thread-6"),
+      ThreadId.makeUnsafe("thread-8"),
+    ]);
   });
 
-  it("builds per-project thread lists for every project once", () => {
-    const grouped = buildThreadsByProjectId([threadA, threadB, threadC]);
+  it("returns all threads when the list is expanded", () => {
+    const threads = Array.from({ length: 8 }, (_, index) =>
+      makeThread({
+        id: ThreadId.makeUnsafe(`thread-${index + 1}`),
+      }),
+    );
 
-    const lists = buildProjectThreadLists({
-      projectIds: [project1, project2, project3],
-      previewLimit: 1,
-      expandedProjectIds: new Set([project2]),
-      threadsByProjectId: grouped,
+    const result = getVisibleThreadsForProject({
+      threads,
+      activeThreadId: ThreadId.makeUnsafe("thread-8"),
+      isThreadListExpanded: true,
+      previewLimit: 6,
     });
 
-    expect(lists.get(project1)).toMatchObject({
-      hasHiddenThreads: true,
-      hiddenThreadCount: 1,
-      isExpanded: false,
-    });
-    expect(lists.get(project2)).toMatchObject({
-      hasHiddenThreads: false,
-      hiddenThreadCount: 0,
-      isExpanded: true,
-      visibleThreads: [{ id: "thread-c" }],
-    });
-    expect(lists.get(project3)).toMatchObject({
-      allThreads: [],
-      visibleThreads: [],
-      hasHiddenThreads: false,
-      hiddenThreadCount: 0,
-      isExpanded: false,
-    });
+    expect(result.hasHiddenThreads).toBe(true);
+    expect(result.visibleThreads.map((thread) => thread.id)).toEqual(
+      threads.map((thread) => thread.id),
+    );
+  });
+});
+
+function makeProject(overrides: Partial<Project> = {}): Project {
+  return {
+    id: ProjectId.makeUnsafe("project-1"),
+    name: "Project",
+    cwd: "/tmp/project",
+    model: "gpt-5.4",
+    expanded: true,
+    createdAt: "2026-03-09T10:00:00.000Z",
+    updatedAt: "2026-03-09T10:00:00.000Z",
+    scripts: [],
+    ...overrides,
+  };
+}
+
+function makeThread(overrides: Partial<Thread> = {}): Thread {
+  return {
+    id: ThreadId.makeUnsafe("thread-1"),
+    codexThreadId: null,
+    projectId: ProjectId.makeUnsafe("project-1"),
+    title: "Thread",
+    model: "gpt-5.4",
+    runtimeMode: DEFAULT_RUNTIME_MODE,
+    interactionMode: DEFAULT_INTERACTION_MODE,
+    session: null,
+    messages: [],
+    proposedPlans: [],
+    error: null,
+    createdAt: "2026-03-09T10:00:00.000Z",
+    updatedAt: "2026-03-09T10:00:00.000Z",
+    latestTurn: null,
+    branch: null,
+    worktreePath: null,
+    turnDiffSummaries: [],
+    activities: [],
+    ...overrides,
+  };
+}
+
+describe("sortThreadsForSidebar", () => {
+  it("sorts threads by the latest user message in recency mode", () => {
+    const sorted = sortThreadsForSidebar(
+      [
+        makeThread({
+          id: ThreadId.makeUnsafe("thread-1"),
+          createdAt: "2026-03-09T10:00:00.000Z",
+          updatedAt: "2026-03-09T10:10:00.000Z",
+          messages: [
+            {
+              id: "message-1" as never,
+              role: "user",
+              text: "older",
+              createdAt: "2026-03-09T10:01:00.000Z",
+              streaming: false,
+              completedAt: "2026-03-09T10:01:00.000Z",
+            },
+          ],
+        }),
+        makeThread({
+          id: ThreadId.makeUnsafe("thread-2"),
+          createdAt: "2026-03-09T10:05:00.000Z",
+          updatedAt: "2026-03-09T10:05:00.000Z",
+          messages: [
+            {
+              id: "message-2" as never,
+              role: "user",
+              text: "newer",
+              createdAt: "2026-03-09T10:06:00.000Z",
+              streaming: false,
+              completedAt: "2026-03-09T10:06:00.000Z",
+            },
+          ],
+        }),
+      ],
+      "updated_at",
+    );
+
+    expect(sorted.map((thread) => thread.id)).toEqual([
+      ThreadId.makeUnsafe("thread-2"),
+      ThreadId.makeUnsafe("thread-1"),
+    ]);
   });
 
-  it("returns the newest thread from a pre-sorted list", () => {
-    expect(findNewestThread([threadB, threadA])).toMatchObject({ id: "thread-b" });
-    expect(findNewestThread([])).toBeNull();
+  it("falls back to thread timestamps when there is no user message", () => {
+    const sorted = sortThreadsForSidebar(
+      [
+        makeThread({
+          id: ThreadId.makeUnsafe("thread-1"),
+          createdAt: "2026-03-09T10:00:00.000Z",
+          updatedAt: "2026-03-09T10:01:00.000Z",
+          messages: [
+            {
+              id: "message-1" as never,
+              role: "assistant",
+              text: "assistant only",
+              createdAt: "2026-03-09T10:02:00.000Z",
+              streaming: false,
+              completedAt: "2026-03-09T10:02:00.000Z",
+            },
+          ],
+        }),
+        makeThread({
+          id: ThreadId.makeUnsafe("thread-2"),
+          createdAt: "2026-03-09T10:05:00.000Z",
+          updatedAt: "2026-03-09T10:05:00.000Z",
+          messages: [],
+        }),
+      ],
+      "updated_at",
+    );
+
+    expect(sorted.map((thread) => thread.id)).toEqual([
+      ThreadId.makeUnsafe("thread-2"),
+      ThreadId.makeUnsafe("thread-1"),
+    ]);
+  });
+
+  it("falls back to id ordering when threads have no sortable timestamps", () => {
+    const sorted = sortThreadsForSidebar(
+      [
+        makeThread({
+          id: ThreadId.makeUnsafe("thread-1"),
+          createdAt: "" as never,
+          updatedAt: undefined,
+          messages: [],
+        }),
+        makeThread({
+          id: ThreadId.makeUnsafe("thread-2"),
+          createdAt: "" as never,
+          updatedAt: undefined,
+          messages: [],
+        }),
+      ],
+      "updated_at",
+    );
+
+    expect(sorted.map((thread) => thread.id)).toEqual([
+      ThreadId.makeUnsafe("thread-2"),
+      ThreadId.makeUnsafe("thread-1"),
+    ]);
+  });
+
+  it("can sort threads by createdAt when configured", () => {
+    const sorted = sortThreadsForSidebar(
+      [
+        makeThread({
+          id: ThreadId.makeUnsafe("thread-1"),
+          createdAt: "2026-03-09T10:05:00.000Z",
+          updatedAt: "2026-03-09T10:05:00.000Z",
+        }),
+        makeThread({
+          id: ThreadId.makeUnsafe("thread-2"),
+          createdAt: "2026-03-09T10:00:00.000Z",
+          updatedAt: "2026-03-09T10:10:00.000Z",
+        }),
+      ],
+      "created_at",
+    );
+
+    expect(sorted.map((thread) => thread.id)).toEqual([
+      ThreadId.makeUnsafe("thread-1"),
+      ThreadId.makeUnsafe("thread-2"),
+    ]);
+  });
+});
+
+describe("sortProjectsForSidebar", () => {
+  it("sorts projects by the most recent user message across their threads", () => {
+    const projects = [
+      makeProject({ id: ProjectId.makeUnsafe("project-1"), name: "Older project" }),
+      makeProject({ id: ProjectId.makeUnsafe("project-2"), name: "Newer project" }),
+    ];
+    const threads = [
+      makeThread({
+        projectId: ProjectId.makeUnsafe("project-1"),
+        updatedAt: "2026-03-09T10:20:00.000Z",
+        messages: [
+          {
+            id: "message-1" as never,
+            role: "user",
+            text: "older project user message",
+            createdAt: "2026-03-09T10:01:00.000Z",
+            streaming: false,
+            completedAt: "2026-03-09T10:01:00.000Z",
+          },
+        ],
+      }),
+      makeThread({
+        id: ThreadId.makeUnsafe("thread-2"),
+        projectId: ProjectId.makeUnsafe("project-2"),
+        updatedAt: "2026-03-09T10:05:00.000Z",
+        messages: [
+          {
+            id: "message-2" as never,
+            role: "user",
+            text: "newer project user message",
+            createdAt: "2026-03-09T10:05:00.000Z",
+            streaming: false,
+            completedAt: "2026-03-09T10:05:00.000Z",
+          },
+        ],
+      }),
+    ];
+
+    const sorted = sortProjectsForSidebar(projects, threads, "updated_at");
+
+    expect(sorted.map((project) => project.id)).toEqual([
+      ProjectId.makeUnsafe("project-2"),
+      ProjectId.makeUnsafe("project-1"),
+    ]);
+  });
+
+  it("falls back to project timestamps when a project has no threads", () => {
+    const sorted = sortProjectsForSidebar(
+      [
+        makeProject({
+          id: ProjectId.makeUnsafe("project-1"),
+          name: "Older project",
+          updatedAt: "2026-03-09T10:01:00.000Z",
+        }),
+        makeProject({
+          id: ProjectId.makeUnsafe("project-2"),
+          name: "Newer project",
+          updatedAt: "2026-03-09T10:05:00.000Z",
+        }),
+      ],
+      [],
+      "updated_at",
+    );
+
+    expect(sorted.map((project) => project.id)).toEqual([
+      ProjectId.makeUnsafe("project-2"),
+      ProjectId.makeUnsafe("project-1"),
+    ]);
+  });
+
+  it("falls back to name and id ordering when projects have no sortable timestamps", () => {
+    const sorted = sortProjectsForSidebar(
+      [
+        makeProject({
+          id: ProjectId.makeUnsafe("project-2"),
+          name: "Beta",
+          createdAt: undefined,
+          updatedAt: undefined,
+        }),
+        makeProject({
+          id: ProjectId.makeUnsafe("project-1"),
+          name: "Alpha",
+          createdAt: undefined,
+          updatedAt: undefined,
+        }),
+      ],
+      [],
+      "updated_at",
+    );
+
+    expect(sorted.map((project) => project.id)).toEqual([
+      ProjectId.makeUnsafe("project-1"),
+      ProjectId.makeUnsafe("project-2"),
+    ]);
+  });
+
+  it("preserves manual project ordering", () => {
+    const projects = [
+      makeProject({ id: ProjectId.makeUnsafe("project-2"), name: "Second" }),
+      makeProject({ id: ProjectId.makeUnsafe("project-1"), name: "First" }),
+    ];
+
+    const sorted = sortProjectsForSidebar(projects, [], "manual");
+
+    expect(sorted.map((project) => project.id)).toEqual([
+      ProjectId.makeUnsafe("project-2"),
+      ProjectId.makeUnsafe("project-1"),
+    ]);
+  });
+
+  it("returns the project timestamp when no threads are present", () => {
+    const timestamp = getProjectSortTimestamp(
+      makeProject({ updatedAt: "2026-03-09T10:10:00.000Z" }),
+      [],
+      "updated_at",
+    );
+
+    expect(timestamp).toBe(Date.parse("2026-03-09T10:10:00.000Z"));
   });
 });

@@ -1,6 +1,7 @@
 {
   "name": "fatma-app",
   "version": "1.0.34",
+  "license": "MIT",
   "homepage": "https://github.com/dinweldik/fatma#readme",
   "bugs": {
     "url": "https://github.com/dinweldik/fatma/issues"
@@ -26,6 +27,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.2.77",
     "@effect/platform-node": "catalog:",
     "@effect/sql-sqlite-bun": "catalog:",
     "@pierre/diffs": "^1.1.0-beta.16",
@@ -48,6 +50,6 @@
     "vitest": "catalog:"
   },
   "engines": {
-    "node": "^22.13 || ^23.4 || >=24.10"
+    "node": "^22.16 || ^23.11 || >=24.10"
   }
 }
