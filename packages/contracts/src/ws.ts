@@ -16,6 +16,7 @@ import {
   GitCheckoutInput,
   GitCommitInput,
   GitCreateBranchInput,
+  GitGenerateCommitMessageInput,
   GitPreparePullRequestThreadInput,
   GitCreateWorktreeInput,
   GitInitInput,
@@ -87,6 +88,7 @@ export const WS_METHODS = {
   gitInit: "git.init",
   gitResolvePullRequest: "git.resolvePullRequest",
   gitPreparePullRequestThread: "git.preparePullRequestThread",
+  gitGenerateCommitMessage: "git.generateCommitMessage",
 
   // Terminal methods
   terminalOpen: "terminal.open",
@@ -163,6 +165,7 @@ const WebSocketRequestBody = Schema.Union([
   tagRequestBody(WS_METHODS.gitInit, GitInitInput),
   tagRequestBody(WS_METHODS.gitResolvePullRequest, GitPullRequestRefInput),
   tagRequestBody(WS_METHODS.gitPreparePullRequestThread, GitPreparePullRequestThreadInput),
+  tagRequestBody(WS_METHODS.gitGenerateCommitMessage, GitGenerateCommitMessageInput),
 
   // Terminal methods
   tagRequestBody(WS_METHODS.terminalOpen, TerminalOpenInput),

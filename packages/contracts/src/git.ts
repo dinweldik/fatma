@@ -114,6 +114,17 @@ export const GitCommitInput = Schema.Struct({
 });
 export type GitCommitInput = typeof GitCommitInput.Type;
 
+export const GitGenerateCommitMessageInput = Schema.Struct({
+  cwd: TrimmedNonEmptyStringSchema,
+});
+export type GitGenerateCommitMessageInput = typeof GitGenerateCommitMessageInput.Type;
+
+export const GitGenerateCommitMessageResult = Schema.Struct({
+  subject: Schema.String,
+  body: Schema.String,
+});
+export type GitGenerateCommitMessageResult = typeof GitGenerateCommitMessageResult.Type;
+
 export const GitRunStackedActionInput = Schema.Struct({
   actionId: TrimmedNonEmptyStringSchema,
   cwd: TrimmedNonEmptyStringSchema,

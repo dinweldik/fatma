@@ -7,6 +7,26 @@ const GIT_STATUS_REFETCH_INTERVAL_MS = 15_000;
 const GIT_BRANCHES_STALE_TIME_MS = 15_000;
 const GIT_BRANCHES_REFETCH_INTERVAL_MS = 60_000;
 
+const GIT_MUTATION_TIMEOUT_MS = 60_000;
+const GIT_STAGE_TIMEOUT_MS = 30_000;
+const GIT_GENERATE_COMMIT_MSG_TIMEOUT_MS = 120_000;
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) => {
+      const timer = setTimeout(
+        () => reject(new Error(`${label} timed out after ${Math.round(timeoutMs / 1000)}s.`)),
+        timeoutMs,
+      );
+      // Avoid keeping the Node/browser process alive just for this timer.
+      if (typeof timer === "object" && "unref" in timer) {
+        (timer as NodeJS.Timeout).unref();
+      }
+    }),
+  ]);
+}
+
 export const gitQueryKeys = {
   all: ["git"] as const,
   status: (cwd: string | null) => ["git", "status", cwd] as const,
@@ -26,6 +46,8 @@ export const gitMutationKeys = {
   push: (cwd: string | null) => ["git", "mutation", "push", cwd] as const,
   preparePullRequestThread: (cwd: string | null) =>
     ["git", "mutation", "prepare-pull-request-thread", cwd] as const,
+  generateCommitMessage: (cwd: string | null) =>
+    ["git", "mutation", "generate-commit-message", cwd] as const,
 };
 
 export function invalidateGitQueries(queryClient: QueryClient) {
@@ -151,7 +173,11 @@ export function gitStageFilesMutationOptions(input: {
     mutationFn: async (paths: string[]) => {
       const api = ensureNativeApi();
       if (!input.cwd) throw new Error("Git staging is unavailable.");
-      return api.git.stageFiles({ cwd: input.cwd, paths });
+      return withTimeout(
+        api.git.stageFiles({ cwd: input.cwd, paths }),
+        GIT_STAGE_TIMEOUT_MS,
+        "Stage files",
+      );
     },
     onSettled: async () => {
       await invalidateGitQueries(input.queryClient);
@@ -168,7 +194,11 @@ export function gitUnstageFilesMutationOptions(input: {
     mutationFn: async (paths: string[]) => {
       const api = ensureNativeApi();
       if (!input.cwd) throw new Error("Git unstaging is unavailable.");
-      return api.git.unstageFiles({ cwd: input.cwd, paths });
+      return withTimeout(
+        api.git.unstageFiles({ cwd: input.cwd, paths }),
+        GIT_STAGE_TIMEOUT_MS,
+        "Unstage files",
+      );
     },
     onSettled: async () => {
       await invalidateGitQueries(input.queryClient);
@@ -182,7 +212,11 @@ export function gitCommitMutationOptions(input: { cwd: string | null; queryClien
     mutationFn: async (message: string) => {
       const api = ensureNativeApi();
       if (!input.cwd) throw new Error("Git commit is unavailable.");
-      return api.git.commit({ cwd: input.cwd, message });
+      return withTimeout(
+        api.git.commit({ cwd: input.cwd, message }),
+        GIT_MUTATION_TIMEOUT_MS,
+        "Commit",
+      );
     },
     onSettled: async () => {
       await invalidateGitQueries(input.queryClient);
@@ -234,7 +268,7 @@ export function gitPullMutationOptions(input: { cwd: string | null; queryClient:
     mutationFn: async () => {
       const api = ensureNativeApi();
       if (!input.cwd) throw new Error("Git pull is unavailable.");
-      return api.git.pull({ cwd: input.cwd });
+      return withTimeout(api.git.pull({ cwd: input.cwd }), GIT_MUTATION_TIMEOUT_MS, "Fetch & pull");
     },
     onSettled: async () => {
       await invalidateGitQueries(input.queryClient);
@@ -248,7 +282,7 @@ export function gitPushMutationOptions(input: { cwd: string | null; queryClient:
     mutationFn: async () => {
       const api = ensureNativeApi();
       if (!input.cwd) throw new Error("Git push is unavailable.");
-      return api.git.push({ cwd: input.cwd });
+      return withTimeout(api.git.push({ cwd: input.cwd }), GIT_MUTATION_TIMEOUT_MS, "Push");
     },
     onSettled: async () => {
       await invalidateGitQueries(input.queryClient);
@@ -311,6 +345,21 @@ export function gitPreparePullRequestThreadMutationOptions(input: {
     mutationKey: gitMutationKeys.preparePullRequestThread(input.cwd),
     onSettled: async () => {
       await invalidateGitQueries(input.queryClient);
+    },
+  });
+}
+
+export function gitGenerateCommitMessageMutationOptions(input: { cwd: string | null }) {
+  return mutationOptions({
+    mutationKey: gitMutationKeys.generateCommitMessage(input.cwd),
+    mutationFn: async () => {
+      const api = ensureNativeApi();
+      if (!input.cwd) throw new Error("Commit message generation is unavailable.");
+      return withTimeout(
+        api.git.generateCommitMessage({ cwd: input.cwd }),
+        GIT_GENERATE_COMMIT_MSG_TIMEOUT_MS,
+        "Generate commit message",
+      );
     },
   });
 }

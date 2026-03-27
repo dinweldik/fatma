@@ -6,13 +6,22 @@ import type {
   GitReadWorkingTreeFileDiffResult,
   GitStatusResult,
 } from "@fatma/contracts";
-import { CheckIcon, ChevronDownIcon, FileIcon, FolderIcon } from "lucide-react";
+import {
+  CheckIcon,
+  ChevronDownIcon,
+  FileIcon,
+  FolderIcon,
+  LoaderIcon,
+  SparklesIcon,
+} from "lucide-react";
 import {
   type ComponentProps,
   type ReactNode,
+  useCallback,
   useDeferredValue,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import { useTheme } from "../hooks/useTheme";
@@ -20,6 +29,7 @@ import { useMediaQuery } from "../hooks/useMediaQuery";
 import {
   gitBranchesQueryOptions,
   gitCommitMutationOptions,
+  gitGenerateCommitMessageMutationOptions,
   gitInitMutationOptions,
   gitPullMutationOptions,
   gitPushMutationOptions,
@@ -152,6 +162,12 @@ function ChangeSection({
   onActionAll,
   onActionFile,
   resolvedTheme,
+  selectedFile,
+  selectedFileDiffError,
+  selectedFileDiffQuery,
+  selectedRenderablePatch,
+  selectedFiles,
+  isMobileLayout,
 }: {
   title: string;
   emptyLabel: string;
@@ -167,6 +183,12 @@ function ChangeSection({
   onActionAll: () => void;
   onActionFile: (path: string) => void;
   resolvedTheme: "light" | "dark";
+  selectedFile: GitChangedFile | null;
+  selectedFileDiffError: string | null;
+  selectedFileDiffQuery: { isLoading: boolean; isFetching: boolean };
+  selectedRenderablePatch: ReturnType<typeof getRenderablePatch>;
+  selectedFiles: ReadonlyArray<import("@pierre/diffs/react").FileDiffMetadata>;
+  isMobileLayout: boolean;
 }) {
   return (
     <section className="space-y-2">
@@ -263,6 +285,88 @@ function ChangeSection({
           </div>
         </div>
       )}
+      {selectedTarget?.scope === scope && selectedFile ? (
+        <section className={cn("space-y-2", !isMobileLayout && "min-h-0 flex-1")}>
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-[11px] font-semibold tracking-[0.16em] text-muted-foreground uppercase">
+              {scopeLabel(selectedTarget?.scope ?? "unstaged")} Diff
+            </p>
+            <button
+              type="button"
+              className="text-xs text-muted-foreground transition-colors hover:text-foreground"
+              onClick={() => onSelectFile(selectedTarget!)}
+            >
+              Collapse
+            </button>
+          </div>
+          <div className="min-h-0 overflow-hidden rounded-xl border border-border/70 bg-card">
+            <div className="flex items-center justify-between gap-3 border-b border-border/70 px-4 py-3">
+              <div className="flex min-w-0 items-center gap-3">
+                <div className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-border/70 bg-background">
+                  <FileIcon className="size-4 text-foreground/80" />
+                </div>
+                <div className="min-w-0">
+                  <p className="truncate font-medium text-foreground">{selectedFile.path}</p>
+                  <p className={cn("text-xs", statusClassName(selectedFile.status))}>
+                    {scopeLabel(selectedTarget?.scope ?? "unstaged")} ·{" "}
+                    {statusLabel(selectedFile.status)}
+                  </p>
+                </div>
+              </div>
+              <div className="shrink-0 text-right font-mono text-sm">
+                <span className="text-red-600 dark:text-red-300/90">-{selectedFile.deletions}</span>
+                <span className="mx-2 text-muted-foreground/60" />
+                <span className="text-emerald-600 dark:text-emerald-300/90">
+                  +{selectedFile.insertions}
+                </span>
+              </div>
+            </div>
+
+            <div
+              className={cn(
+                "overflow-x-auto",
+                isMobileLayout ? "overflow-y-visible" : "max-h-[28rem] overflow-y-auto",
+              )}
+            >
+              {selectedFileDiffError ? (
+                <div className="px-4 py-5 text-sm text-destructive">{selectedFileDiffError}</div>
+              ) : !selectedRenderablePatch ? (
+                <div className="px-4 py-5 text-sm text-muted-foreground">
+                  {selectedFileDiffQuery.isLoading || selectedFileDiffQuery.isFetching
+                    ? "Loading file diff..."
+                    : "No diff available for this file."}
+                </div>
+              ) : selectedRenderablePatch.kind === "files" ? (
+                <div className="[&_[data-file-info]]:hidden">
+                  {selectedFiles.map((fileDiff) => (
+                    <div key={buildFileDiffRenderKey(fileDiff)}>
+                      <FileDiff
+                        fileDiff={fileDiff}
+                        options={{
+                          diffStyle: "unified",
+                          lineDiffType: "none",
+                          theme: resolveDiffThemeName(resolvedTheme),
+                          themeType: resolvedTheme,
+                          unsafeCSS: DIFF_SURFACE_UNSAFE_CSS,
+                        }}
+                      />
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="space-y-2 p-4">
+                  <p className="text-[11px] text-muted-foreground/75">
+                    {selectedRenderablePatch.reason}
+                  </p>
+                  <pre className="overflow-auto rounded-lg border border-border/70 bg-background/70 p-3 font-mono text-[11px] leading-relaxed text-muted-foreground/90">
+                    {selectedRenderablePatch.text}
+                  </pre>
+                </div>
+              )}
+            </div>
+          </div>
+        </section>
+      ) : null}
     </section>
   );
 }
@@ -287,6 +391,10 @@ function SourceControlPanel({
   onCommit,
   onPull,
   onPush,
+  generateCommitMessagePending,
+  onGenerateCommitMessage,
+  anyMutationStuck,
+  onResetMutations,
   stagePending,
   unstagePending,
   onStageAll,
@@ -317,6 +425,10 @@ function SourceControlPanel({
   onCommit: () => void;
   onPull: () => void;
   onPush: () => void;
+  generateCommitMessagePending: boolean;
+  onGenerateCommitMessage: () => void;
+  anyMutationStuck: boolean;
+  onResetMutations: () => void;
   stagePending: boolean;
   unstagePending: boolean;
   onStageAll: () => void;
@@ -471,23 +583,41 @@ function SourceControlPanel({
               </span>
             </div>
             <div className="space-y-3 rounded-xl border border-border/70 bg-background/70 p-3">
-              <Input
-                aria-label="Commit message"
-                autoComplete="off"
-                placeholder={`Message (${commitShortcutLabel()} to commit on "${repositoryLabel}")`}
-                value={commitMessage}
-                onChange={(event) => onCommitMessageChange(event.target.value)}
-                onKeyDown={(event) => {
-                  if (
-                    (event.metaKey || event.ctrlKey) &&
-                    event.key === "Enter" &&
-                    !commitDisabled
-                  ) {
-                    event.preventDefault();
-                    onCommit();
+              <div className="relative">
+                <Input
+                  aria-label="Commit message"
+                  autoComplete="off"
+                  className="pr-9"
+                  placeholder={`Message (${commitShortcutLabel()} to commit on "${repositoryLabel}")`}
+                  value={commitMessage}
+                  onChange={(event) => onCommitMessageChange(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (
+                      (event.metaKey || event.ctrlKey) &&
+                      event.key === "Enter" &&
+                      !commitDisabled
+                    ) {
+                      event.preventDefault();
+                      onCommit();
+                    }
+                  }}
+                />
+                <button
+                  type="button"
+                  aria-label="Generate commit message"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-0.5 text-muted-foreground transition-colors hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
+                  disabled={
+                    generateCommitMessagePending || stagedFiles.length === 0 || commitPending
                   }
-                }}
-              />
+                  onClick={onGenerateCommitMessage}
+                >
+                  {generateCommitMessagePending ? (
+                    <LoaderIcon className="size-4 animate-spin" />
+                  ) : (
+                    <SparklesIcon className="size-4" />
+                  )}
+                </button>
+              </div>
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_auto_auto]">
                 <Button disabled={commitDisabled} onClick={onCommit}>
                   <CheckIcon className="size-4" />
@@ -504,6 +634,17 @@ function SourceControlPanel({
                       : "Push"}
                 </Button>
               </div>
+              {anyMutationStuck && (
+                <div className="text-center">
+                  <button
+                    type="button"
+                    className="text-xs text-muted-foreground transition-colors hover:text-foreground"
+                    onClick={onResetMutations}
+                  >
+                    Operation taking too long? Click to reset
+                  </button>
+                </div>
+              )}
             </div>
           </section>
 
@@ -524,6 +665,16 @@ function SourceControlPanel({
             onActionAll={onUnstageAll}
             onActionFile={onUnstageFile}
             resolvedTheme={resolvedTheme}
+            selectedFile={selectedTarget?.scope === "staged" ? selectedFile : null}
+            selectedFileDiffError={
+              selectedTarget?.scope === "staged" ? selectedFileDiffError : null
+            }
+            selectedFileDiffQuery={selectedFileDiffQuery}
+            selectedRenderablePatch={
+              selectedTarget?.scope === "staged" ? selectedRenderablePatch : null
+            }
+            selectedFiles={selectedTarget?.scope === "staged" ? selectedFiles : []}
+            isMobileLayout={isMobileLayout}
           />
 
           <ChangeSection
@@ -543,94 +694,17 @@ function SourceControlPanel({
             onActionAll={onStageAll}
             onActionFile={onStageFile}
             resolvedTheme={resolvedTheme}
+            selectedFile={selectedTarget?.scope === "unstaged" ? selectedFile : null}
+            selectedFileDiffError={
+              selectedTarget?.scope === "unstaged" ? selectedFileDiffError : null
+            }
+            selectedFileDiffQuery={selectedFileDiffQuery}
+            selectedRenderablePatch={
+              selectedTarget?.scope === "unstaged" ? selectedRenderablePatch : null
+            }
+            selectedFiles={selectedTarget?.scope === "unstaged" ? selectedFiles : []}
+            isMobileLayout={isMobileLayout}
           />
-
-          {selectedFile ? (
-            <section className={cn("space-y-2", !isMobileLayout && "min-h-0 flex-1")}>
-              <div className="flex items-center justify-between gap-3">
-                <p className="text-[11px] font-semibold tracking-[0.16em] text-muted-foreground uppercase">
-                  {scopeLabel(selectedTarget?.scope ?? "unstaged")} Diff
-                </p>
-                <button
-                  type="button"
-                  className="text-xs text-muted-foreground transition-colors hover:text-foreground"
-                  onClick={() => onSelectFile(selectedTarget!)}
-                >
-                  Collapse
-                </button>
-              </div>
-              <div className="min-h-0 overflow-hidden rounded-xl border border-border/70 bg-card">
-                <div className="flex items-center justify-between gap-3 border-b border-border/70 px-4 py-3">
-                  <div className="flex min-w-0 items-center gap-3">
-                    <div className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-border/70 bg-background">
-                      <FileIcon className="size-4 text-foreground/80" />
-                    </div>
-                    <div className="min-w-0">
-                      <p className="truncate font-medium text-foreground">{selectedFile.path}</p>
-                      <p className={cn("text-xs", statusClassName(selectedFile.status))}>
-                        {scopeLabel(selectedTarget?.scope ?? "unstaged")} ·{" "}
-                        {statusLabel(selectedFile.status)}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="shrink-0 text-right font-mono text-sm">
-                    <span className="text-red-600 dark:text-red-300/90">
-                      -{selectedFile.deletions}
-                    </span>
-                    <span className="mx-2 text-muted-foreground/60" />
-                    <span className="text-emerald-600 dark:text-emerald-300/90">
-                      +{selectedFile.insertions}
-                    </span>
-                  </div>
-                </div>
-
-                <div
-                  className={cn(
-                    "overflow-x-auto",
-                    isMobileLayout ? "overflow-y-visible" : "max-h-[28rem] overflow-y-auto",
-                  )}
-                >
-                  {selectedFileDiffError ? (
-                    <div className="px-4 py-5 text-sm text-destructive">
-                      {selectedFileDiffError}
-                    </div>
-                  ) : !selectedRenderablePatch ? (
-                    <div className="px-4 py-5 text-sm text-muted-foreground">
-                      {selectedFileDiffQuery.isLoading || selectedFileDiffQuery.isFetching
-                        ? "Loading file diff..."
-                        : "No diff available for this file."}
-                    </div>
-                  ) : selectedRenderablePatch.kind === "files" ? (
-                    <div className="[&_[data-file-info]]:hidden">
-                      {selectedFiles.map((fileDiff) => (
-                        <div key={buildFileDiffRenderKey(fileDiff)}>
-                          <FileDiff
-                            fileDiff={fileDiff}
-                            options={{
-                              diffStyle: "unified",
-                              lineDiffType: "none",
-                              theme: resolveDiffThemeName(resolvedTheme),
-                              themeType: resolvedTheme,
-                              unsafeCSS: DIFF_SURFACE_UNSAFE_CSS,
-                            }}
-                          />
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="space-y-2 p-4">
-                      <p className="text-[11px] text-muted-foreground/75">
-                        {selectedRenderablePatch.reason}
-                      </p>
-                      <pre className="overflow-auto rounded-lg border border-border/70 bg-background/70 p-3 font-mono text-[11px] leading-relaxed text-muted-foreground/90">
-                        {selectedRenderablePatch.text}
-                      </pre>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </section>
-          ) : null}
         </>
       )}
       {(branchListError || gitStatusError) && (
@@ -680,6 +754,9 @@ export default function GitActionsControl({
   const commitMutation = useMutation(gitCommitMutationOptions({ cwd: gitCwd, queryClient }));
   const pullMutation = useMutation(gitPullMutationOptions({ cwd: gitCwd, queryClient }));
   const pushMutation = useMutation(gitPushMutationOptions({ cwd: gitCwd, queryClient }));
+  const generateCommitMessageMutation = useMutation(
+    gitGenerateCommitMessageMutationOptions({ cwd: gitCwd }),
+  );
   const gitStatusQuery = useQuery({
     ...gitStatusQueryOptions(gitCwd),
     enabled: gitCwd !== null && branchListQuery.data?.isRepo === true,
@@ -723,6 +800,49 @@ export default function GitActionsControl({
     setCommitMessage("");
     setSelectedTarget(null);
   }, [gitCwd]);
+
+  // Stuck mutation detection: show reset link after 30s of any mutation pending.
+  const STUCK_THRESHOLD_MS = 30_000;
+  const [anyMutationStuck, setAnyMutationStuck] = useState(false);
+  const anyPending =
+    stageFilesMutation.isPending ||
+    unstageFilesMutation.isPending ||
+    commitMutation.isPending ||
+    pullMutation.isPending ||
+    pushMutation.isPending;
+  const stuckTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (anyPending) {
+      stuckTimerRef.current = setTimeout(() => setAnyMutationStuck(true), STUCK_THRESHOLD_MS);
+    } else {
+      setAnyMutationStuck(false);
+      if (stuckTimerRef.current) {
+        clearTimeout(stuckTimerRef.current);
+        stuckTimerRef.current = null;
+      }
+    }
+    return () => {
+      if (stuckTimerRef.current) {
+        clearTimeout(stuckTimerRef.current);
+        stuckTimerRef.current = null;
+      }
+    };
+  }, [anyPending]);
+
+  const handleResetMutations = useCallback(() => {
+    stageFilesMutation.reset();
+    unstageFilesMutation.reset();
+    commitMutation.reset();
+    pullMutation.reset();
+    pushMutation.reset();
+    setAnyMutationStuck(false);
+    toastManager.add({
+      type: "info",
+      title: "Git operations reset",
+      description: "All pending operations have been cancelled.",
+    });
+  }, [stageFilesMutation, unstageFilesMutation, commitMutation, pullMutation, pushMutation]);
 
   if (!gitCwd) {
     return null;
@@ -807,6 +927,17 @@ export default function GitActionsControl({
       });
   };
 
+  const handleGenerateCommitMessage = () => {
+    void generateCommitMessageMutation
+      .mutateAsync()
+      .then((result) => {
+        setCommitMessage(result.subject);
+      })
+      .catch((error) => {
+        handleMutationError("Could not generate commit message", error);
+      });
+  };
+
   const trigger = (
     <Button
       size={triggerSize ?? "xs"}
@@ -846,6 +977,10 @@ export default function GitActionsControl({
       onCommit={handleCommit}
       onPull={handlePull}
       onPush={handlePush}
+      generateCommitMessagePending={generateCommitMessageMutation.isPending}
+      onGenerateCommitMessage={handleGenerateCommitMessage}
+      anyMutationStuck={anyMutationStuck}
+      onResetMutations={handleResetMutations}
       stagePending={stageFilesMutation.isPending}
       unstagePending={unstageFilesMutation.isPending}
       onStageAll={() => handleStageFiles(unstagedFiles.map((file) => file.path))}

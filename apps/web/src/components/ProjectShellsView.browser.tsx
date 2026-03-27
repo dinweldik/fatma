@@ -123,6 +123,7 @@ function createNativeApi(): NativeApi {
       init: vi.fn(),
       resolvePullRequest: vi.fn(),
       preparePullRequestThread: vi.fn(),
+      generateCommitMessage: vi.fn(),
     },
     terminal: {
       open: terminalOpenMock,

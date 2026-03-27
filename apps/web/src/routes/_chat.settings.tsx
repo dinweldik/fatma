@@ -32,6 +32,7 @@ import { isElectron } from "../env";
 import { useTheme } from "../hooks/useTheme";
 import { serverConfigQueryOptions } from "../lib/serverReactQuery";
 import { cn } from "../lib/utils";
+import { useMobileViewport } from "../mobileViewport";
 import { ensureNativeApi, readNativeApi } from "../nativeApi";
 
 const THEME_OPTIONS = [
@@ -186,6 +187,7 @@ function SettingResetButton({ label, onClick }: { label: string; onClick: () => 
 }
 
 function SettingsRouteView() {
+  const mobileViewport = useMobileViewport();
   const { theme, setTheme } = useTheme();
   const { settings, defaults, updateSettings, resetSettings } = useAppSettings();
   const serverConfigQuery = useQuery(serverConfigQueryOptions());
@@ -385,7 +387,7 @@ function SettingsRouteView() {
         {!isElectron && (
           <header className="border-b border-border px-3 py-2 sm:px-5">
             <div className="flex items-center gap-2">
-              <SidebarTrigger className="size-7 shrink-0 md:hidden" />
+              {!mobileViewport.isMobile && <SidebarTrigger className="size-7 shrink-0 md:hidden" />}
               <span className="text-sm font-medium text-foreground">Settings</span>
               <div className="ms-auto flex items-center gap-2">
                 <Button
@@ -421,7 +423,14 @@ function SettingsRouteView() {
           </div>
         )}
 
-        <div className="flex-1 overflow-y-auto p-6">
+        <div
+          className="flex-1 overflow-y-auto p-6"
+          style={{
+            paddingBottom: mobileViewport.isMobile
+              ? "calc(1.5rem + var(--app-mobile-bottom-dock-height, 0px))"
+              : undefined,
+          }}
+        >
           <div className="mx-auto flex w-full max-w-2xl flex-col gap-6">
             <SettingsSection title="General">
               <SettingsRow

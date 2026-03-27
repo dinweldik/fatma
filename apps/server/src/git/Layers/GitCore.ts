@@ -1011,6 +1011,30 @@ const makeGitCore = Effect.gen(function* () {
       };
     });
 
+  const readStagedContext: GitCoreShape["readStagedContext"] = (cwd) =>
+    Effect.gen(function* () {
+      const stagedSummary = yield* runGitStdout("GitCore.readStagedContext.stagedSummary", cwd, [
+        "diff",
+        "--cached",
+        "--name-status",
+      ]).pipe(Effect.map((stdout) => stdout.trim()));
+      if (stagedSummary.length === 0) {
+        return null;
+      }
+
+      const stagedPatch = yield* runGitStdout("GitCore.readStagedContext.stagedPatch", cwd, [
+        "diff",
+        "--cached",
+        "--patch",
+        "--minimal",
+      ]);
+
+      return {
+        stagedSummary,
+        stagedPatch,
+      };
+    });
+
   const commit: GitCoreShape["commit"] = (cwd, subject, body) =>
     Effect.gen(function* () {
       const args = ["commit", "-m", subject];
@@ -1641,6 +1665,7 @@ const makeGitCore = Effect.gen(function* () {
     stageFiles,
     unstageFiles,
     prepareCommitContext,
+    readStagedContext,
     commit,
     commitStaged,
     pushCurrentBranch,

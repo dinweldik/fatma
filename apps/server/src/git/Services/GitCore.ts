@@ -115,8 +115,17 @@ export interface GitCoreShape {
 
   /**
    * Build staged change context for commit generation.
+   * NOTE: This runs `git add -A` first to stage all changes.
    */
   readonly prepareCommitContext: (
+    cwd: string,
+  ) => Effect.Effect<GitPreparedCommitContext | null, GitCommandError>;
+
+  /**
+   * Read staged change context without modifying the index.
+   * Returns null if nothing is currently staged.
+   */
+  readonly readStagedContext: (
     cwd: string,
   ) => Effect.Effect<GitPreparedCommitContext | null, GitCommandError>;
 

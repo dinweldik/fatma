@@ -1160,6 +1160,11 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
         });
       }
 
+      case WS_METHODS.gitGenerateCommitMessage: {
+        const body = stripRequestTag(request.body);
+        return yield* gitManager.generateCommitMessage(body);
+      }
+
       case WS_METHODS.gitResolvePullRequest: {
         const body = stripRequestTag(request.body);
         return yield* gitManager.resolvePullRequest(body);

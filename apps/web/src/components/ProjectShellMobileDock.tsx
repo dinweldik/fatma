@@ -73,7 +73,7 @@ export default function ProjectShellMobileDock({ projectId }: { readonly project
       toProjectShellMobileInputData(consoleState.draftText),
     );
     setDraftText(projectId, "");
-    inputRef.current?.focus();
+    inputRef.current?.focus({ preventScroll: true });
   };
 
   return (
@@ -128,7 +128,7 @@ export default function ProjectShellMobileDock({ projectId }: { readonly project
               label="Tab"
               onPress={() => {
                 void writeToProjectShell(projectId, activeShell.id, "\t");
-                inputRef.current?.focus();
+                inputRef.current?.focus({ preventScroll: true });
               }}
             >
               Tab
@@ -137,7 +137,7 @@ export default function ProjectShellMobileDock({ projectId }: { readonly project
               label="Ctrl+C"
               onPress={() => {
                 void interruptProjectShell(projectId, activeShell.id);
-                inputRef.current?.focus();
+                inputRef.current?.focus({ preventScroll: true });
               }}
             >
               Ctrl+C
@@ -146,7 +146,7 @@ export default function ProjectShellMobileDock({ projectId }: { readonly project
               label="Up"
               onPress={() => {
                 void writeToProjectShell(projectId, activeShell.id, "\x1b[A");
-                inputRef.current?.focus();
+                inputRef.current?.focus({ preventScroll: true });
               }}
             >
               <ArrowUpIcon className="size-3.5" />
@@ -155,7 +155,7 @@ export default function ProjectShellMobileDock({ projectId }: { readonly project
               label="Down"
               onPress={() => {
                 void writeToProjectShell(projectId, activeShell.id, "\x1b[B");
-                inputRef.current?.focus();
+                inputRef.current?.focus({ preventScroll: true });
               }}
             >
               <ArrowDownIcon className="size-3.5" />

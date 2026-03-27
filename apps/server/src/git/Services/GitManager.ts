@@ -8,6 +8,8 @@
  */
 import {
   GitActionProgressEvent,
+  GitGenerateCommitMessageInput,
+  GitGenerateCommitMessageResult,
   GitPreparePullRequestThreadInput,
   GitPreparePullRequestThreadResult,
   GitPullRequestRefInput,
@@ -54,6 +56,13 @@ export interface GitManagerShape {
   readonly preparePullRequestThread: (
     input: GitPreparePullRequestThreadInput,
   ) => Effect.Effect<GitPreparePullRequestThreadResult, GitManagerServiceError>;
+
+  /**
+   * Generate a commit message from currently staged changes using AI.
+   */
+  readonly generateCommitMessage: (
+    input: GitGenerateCommitMessageInput,
+  ) => Effect.Effect<GitGenerateCommitMessageResult, GitManagerServiceError>;
 
   /**
    * Run a stacked Git action (`commit`, `commit_push`, `commit_push_pr`).

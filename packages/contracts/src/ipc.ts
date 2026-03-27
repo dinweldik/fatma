@@ -4,6 +4,8 @@ import type {
   GitCommitInput,
   GitCommitResult,
   GitCreateBranchInput,
+  GitGenerateCommitMessageInput,
+  GitGenerateCommitMessageResult,
   GitPreparePullRequestThreadInput,
   GitPreparePullRequestThreadResult,
   GitPullRequestRefInput,
@@ -181,6 +183,9 @@ export interface NativeApi {
       input: GitReadWorkingTreeFileDiffInput,
     ) => Promise<GitReadWorkingTreeFileDiffResult>;
     runStackedAction: (input: GitRunStackedActionInput) => Promise<GitRunStackedActionResult>;
+    generateCommitMessage: (
+      input: GitGenerateCommitMessageInput,
+    ) => Promise<GitGenerateCommitMessageResult>;
     onActionProgress: (callback: (event: GitActionProgressEvent) => void) => () => void;
   };
   contextMenu: {

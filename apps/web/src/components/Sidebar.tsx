@@ -13,14 +13,7 @@ import {
   SquarePenIcon,
   TerminalIcon,
 } from "lucide-react";
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type MouseEvent,
-} from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import appSidebarLogoUrl from "../../../../assets/prod/logo_nobg.svg";
 import {
   DEFAULT_RUNTIME_MODE,
@@ -31,12 +24,7 @@ import {
   type GitStatusResult,
   type ResolvedKeybindingsConfig,
 } from "@fatma/contracts";
-import {
-  useMutation,
-  useQueries,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query";
+import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams, useRouterState } from "@tanstack/react-router";
 import {
   type SidebarProjectSortOrder,
@@ -46,38 +34,23 @@ import {
 import { isElectron } from "../env";
 import { APP_BASE_NAME, APP_VERSION } from "../branding";
 import { isTerminalFocused } from "../lib/terminalFocus";
-import {
-  cn,
-  isMacPlatform,
-  newCommandId,
-  newProjectId,
-  newThreadId,
-} from "../lib/utils";
+import { cn, isMacPlatform, newCommandId, newProjectId, newThreadId } from "../lib/utils";
 import { useStore } from "../store";
-import {
-  resolveShortcutCommand,
-  shortcutLabelForCommand,
-} from "../keybindings";
+import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings";
 import {
   closeAllProjectShells,
   createProjectShell,
   defaultProjectShellConfig,
   ensureProjectShell,
 } from "../projectShellRunner";
-import {
-  useProjectShellStore,
-  selectProjectShellCollection,
-} from "../projectShellStore";
+import { useProjectShellStore, selectProjectShellCollection } from "../projectShellStore";
 import { gitStatusQueryOptions } from "../lib/gitReactQuery";
 import { serverConfigQueryOptions } from "../lib/serverReactQuery";
 import { readNativeApi } from "../nativeApi";
 import { useComposerDraftStore } from "../composerDraftStore";
 import { useThreadSelectionStore } from "../threadSelectionStore";
 import { onServerWelcome } from "../wsNativeApi";
-import {
-  filterProjectBrowserEntries,
-  isHiddenProjectBrowserEntry,
-} from "../projectBrowserEntries";
+import { filterProjectBrowserEntries, isHiddenProjectBrowserEntry } from "../projectBrowserEntries";
 import { useProjectToolsNavigation } from "../useProjectToolsNavigation";
 import { toastManager } from "./ui/toast";
 import {
@@ -102,11 +75,7 @@ import {
   shouldShowDesktopUpdateButton,
   shouldToastDesktopUpdateActionResult,
 } from "./desktopUpdate.logic";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "./ui/collapsible";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "./ui/collapsible";
 import {
   Dialog,
   DialogDescription,
@@ -116,14 +85,7 @@ import {
   DialogPopup,
   DialogTitle,
 } from "./ui/dialog";
-import {
-  Menu,
-  MenuGroup,
-  MenuPopup,
-  MenuRadioGroup,
-  MenuRadioItem,
-  MenuTrigger,
-} from "./ui/menu";
+import { Menu, MenuGroup, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuTrigger } from "./ui/menu";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -142,7 +104,6 @@ import {
   SidebarMenuSubButton,
   SidebarMenuSubItem,
   SidebarSeparator,
-  SidebarTrigger,
   useSidebar,
 } from "./ui/sidebar";
 import { isNonEmpty as isNonEmptyString } from "effect/String";
@@ -162,10 +123,7 @@ const SIDEBAR_THREAD_SORT_LABELS: Record<SidebarThreadSortOrder, string> = {
 type MobileSidebarPresentation = "page" | "sheet";
 
 async function copyTextToClipboard(text: string): Promise<void> {
-  if (
-    typeof navigator === "undefined" ||
-    navigator.clipboard?.writeText === undefined
-  ) {
+  if (typeof navigator === "undefined" || navigator.clipboard?.writeText === undefined) {
     throw new Error("Clipboard API unavailable.");
   }
   await navigator.clipboard.writeText(text);
@@ -257,10 +215,7 @@ function getServerHttpOrigin(): string {
   // Parse to extract just the origin, dropping path/query (e.g. ?token=…)
   const httpUrl = wsUrl
     .replace(/^wss:/, "https:")
-    .replace(
-      /^ws:/,
-      window.location.protocol === "https:" ? "https:" : "http:",
-    );
+    .replace(/^ws:/, window.location.protocol === "https:" ? "https:" : "http:");
   try {
     return new URL(httpUrl).origin;
   } catch {
@@ -271,16 +226,12 @@ function getServerHttpOrigin(): string {
 const serverHttpOrigin = getServerHttpOrigin();
 
 function ProjectFavicon({ cwd }: { cwd: string }) {
-  const [status, setStatus] = useState<"loading" | "loaded" | "error">(
-    "loading",
-  );
+  const [status, setStatus] = useState<"loading" | "loaded" | "error">("loading");
 
   const src = `${serverHttpOrigin}/api/project-favicon?cwd=${encodeURIComponent(cwd)}`;
 
   if (status === "error") {
-    return (
-      <FolderIcon className="size-3.5 shrink-0 text-muted-foreground/50" />
-    );
+    return <FolderIcon className="size-3.5 shrink-0 text-muted-foreground/50" />;
   }
 
   return (
@@ -328,19 +279,13 @@ function ProjectSortMenu({
               onProjectSortOrderChange(value as SidebarProjectSortOrder);
             }}
           >
-            {(
-              Object.entries(SIDEBAR_SORT_LABELS) as Array<
-                [SidebarProjectSortOrder, string]
-              >
-            ).map(([value, label]) => (
-              <MenuRadioItem
-                key={value}
-                value={value}
-                className="min-h-7 py-1 sm:text-xs"
-              >
-                {label}
-              </MenuRadioItem>
-            ))}
+            {(Object.entries(SIDEBAR_SORT_LABELS) as Array<[SidebarProjectSortOrder, string]>).map(
+              ([value, label]) => (
+                <MenuRadioItem key={value} value={value} className="min-h-7 py-1 sm:text-xs">
+                  {label}
+                </MenuRadioItem>
+              ),
+            )}
           </MenuRadioGroup>
         </MenuGroup>
         <MenuGroup>
@@ -354,15 +299,9 @@ function ProjectSortMenu({
             }}
           >
             {(
-              Object.entries(SIDEBAR_THREAD_SORT_LABELS) as Array<
-                [SidebarThreadSortOrder, string]
-              >
+              Object.entries(SIDEBAR_THREAD_SORT_LABELS) as Array<[SidebarThreadSortOrder, string]>
             ).map(([value, label]) => (
-              <MenuRadioItem
-                key={value}
-                value={value}
-                className="min-h-7 py-1 sm:text-xs"
-              >
+              <MenuRadioItem key={value} value={value} className="min-h-7 py-1 sm:text-xs">
                 {label}
               </MenuRadioItem>
             ))}
@@ -382,26 +321,16 @@ export default function Sidebar({
   const threads = useStore((store) => store.threads);
   const markThreadUnread = useStore((store) => store.markThreadUnread);
   const toggleProject = useStore((store) => store.toggleProject);
-  const optimisticallyRemoveThread = useStore(
-    (store) => store.optimisticallyRemoveThread,
-  );
+  const optimisticallyRemoveThread = useStore((store) => store.optimisticallyRemoveThread);
   const restoreRemovedThread = useStore((store) => store.restoreRemovedThread);
-  const optimisticallyRemoveProject = useStore(
-    (store) => store.optimisticallyRemoveProject,
-  );
-  const restoreRemovedProject = useStore(
-    (store) => store.restoreRemovedProject,
-  );
-  const clearComposerDraftForThread = useComposerDraftStore(
-    (store) => store.clearThreadDraft,
-  );
+  const optimisticallyRemoveProject = useStore((store) => store.optimisticallyRemoveProject);
+  const restoreRemovedProject = useStore((store) => store.restoreRemovedProject);
+  const clearComposerDraftForThread = useComposerDraftStore((store) => store.clearThreadDraft);
   const getDraftThreadByProjectId = useComposerDraftStore(
     (store) => store.getDraftThreadByProjectId,
   );
   const getDraftThread = useComposerDraftStore((store) => store.getDraftThread);
-  const shellStateByProjectId = useProjectShellStore(
-    (state) => state.shellStateByProjectId,
-  );
+  const shellStateByProjectId = useProjectShellStore((state) => state.shellStateByProjectId);
   const setActiveShell = useProjectShellStore((state) => state.setActiveShell);
   const clearProjectDraftThreadId = useComposerDraftStore(
     (store) => store.clearProjectDraftThreadId,
@@ -424,21 +353,16 @@ export default function Sidebar({
   const toggleThreadSelection = useThreadSelectionStore((s) => s.toggleThread);
   const rangeSelectTo = useThreadSelectionStore((s) => s.rangeSelectTo);
   const clearSelection = useThreadSelectionStore((s) => s.clearSelection);
-  const removeFromSelection = useThreadSelectionStore(
-    (s) => s.removeFromSelection,
-  );
+  const removeFromSelection = useThreadSelectionStore((s) => s.removeFromSelection);
   const setSelectionAnchor = useThreadSelectionStore((s) => s.setAnchor);
   const routeThreadId = useParams({
     strict: false,
-    select: (params) =>
-      params.threadId ? ThreadId.makeUnsafe(params.threadId) : null,
+    select: (params) => (params.threadId ? ThreadId.makeUnsafe(params.threadId) : null),
   });
   const routeProjectShell = useParams({
     strict: false,
     select: (params) => ({
-      projectId: params.projectId
-        ? ProjectId.makeUnsafe(params.projectId)
-        : null,
+      projectId: params.projectId ? ProjectId.makeUnsafe(params.projectId) : null,
       shellId: params.shellId ?? null,
     }),
   });
@@ -448,48 +372,30 @@ export default function Sidebar({
   const [addingProject, setAddingProject] = useState(false);
   const [isPickingFolder, setIsPickingFolder] = useState(false);
   const [isAddingProject, setIsAddingProject] = useState(false);
-  const [projectBrowserRootPath, setProjectBrowserRootPath] = useState<
-    string | null
-  >(null);
-  const [projectBrowserCurrentPath, setProjectBrowserCurrentPath] = useState<
-    string | null
-  >(null);
-  const [showHiddenProjectBrowserEntries, setShowHiddenProjectBrowserEntries] =
-    useState(false);
+  const [projectBrowserRootPath, setProjectBrowserRootPath] = useState<string | null>(null);
+  const [projectBrowserCurrentPath, setProjectBrowserCurrentPath] = useState<string | null>(null);
+  const [showHiddenProjectBrowserEntries, setShowHiddenProjectBrowserEntries] = useState(false);
   const [newProjectFolderName, setNewProjectFolderName] = useState("");
-  const [renamingThreadId, setRenamingThreadId] = useState<ThreadId | null>(
-    null,
-  );
+  const [renamingThreadId, setRenamingThreadId] = useState<ThreadId | null>(null);
   const [renamingTitle, setRenamingTitle] = useState("");
-  const [expandedThreadListsByProject, setExpandedThreadListsByProject] =
-    useState<ReadonlySet<ProjectId>>(() => new Set());
+  const [expandedThreadListsByProject, setExpandedThreadListsByProject] = useState<
+    ReadonlySet<ProjectId>
+  >(() => new Set());
   const renamingCommittedRef = useRef(false);
   const renamingInputRef = useRef<HTMLInputElement | null>(null);
-  const [desktopUpdateState, setDesktopUpdateState] =
-    useState<DesktopUpdateState | null>(null);
+  const [desktopUpdateState, setDesktopUpdateState] = useState<DesktopUpdateState | null>(null);
   const threadSidebarStateById = useMemo(() => {
-    const map = new Map<
-      ThreadId,
-      ReturnType<typeof resolveSidebarThreadState>
-    >();
+    const map = new Map<ThreadId, ReturnType<typeof resolveSidebarThreadState>>();
     for (const thread of threads) {
       map.set(thread.id, resolveSidebarThreadState(thread));
     }
     return map;
   }, [threads]);
   const sortedProjects = useMemo(
-    () =>
-      sortProjectsForSidebar(
-        projects,
-        threads,
-        appSettings.sidebarProjectSortOrder,
-      ),
+    () => sortProjectsForSidebar(projects, threads, appSettings.sidebarProjectSortOrder),
     [appSettings.sidebarProjectSortOrder, projects, threads],
   );
-  const threadsByProjectId = useMemo(
-    () => buildThreadsByProjectId(threads),
-    [threads],
-  );
+  const threadsByProjectId = useMemo(() => buildThreadsByProjectId(threads), [threads]);
   const projectThreadLists = useMemo(
     () =>
       buildProjectThreadLists({
@@ -501,8 +407,7 @@ export default function Sidebar({
     [expandedThreadListsByProject, projects, threadsByProjectId],
   );
   const projectCwdById = useMemo(
-    () =>
-      new Map(projects.map((project) => [project.id, project.cwd] as const)),
+    () => new Map(projects.map((project) => [project.id, project.cwd] as const)),
     [projects],
   );
   const threadGitTargets = useMemo(
@@ -516,9 +421,7 @@ export default function Sidebar({
   const threadGitStatusCwds = useMemo(
     () => [
       ...new Set(
-        threadGitTargets
-          .map((target) => target.cwd)
-          .filter((cwd): cwd is string => cwd !== null),
+        threadGitTargets.map((target) => target.cwd).filter((cwd): cwd is string => cwd !== null),
       ),
     ],
     [threadGitTargets],
@@ -530,31 +433,38 @@ export default function Sidebar({
       refetchInterval: 60_000,
     })),
   });
-  const prByThreadId = useMemo(() => {
-    const statusByCwd = new Map<string, GitStatusResult>();
+  const statusByCwd = useMemo(() => {
+    const map = new Map<string, GitStatusResult>();
     for (let index = 0; index < threadGitStatusCwds.length; index += 1) {
       const cwd = threadGitStatusCwds[index];
       if (!cwd) continue;
       const status = threadGitStatusQueries[index]?.data;
       if (status) {
-        statusByCwd.set(cwd, status);
+        map.set(cwd, status);
       }
     }
-
+    return map;
+  }, [threadGitStatusCwds, threadGitStatusQueries]);
+  const prByThreadId = useMemo(() => {
     const map = new Map<ThreadId, ThreadPr>();
     for (const target of threadGitTargets) {
       const status = target.cwd ? statusByCwd.get(target.cwd) : undefined;
       map.set(target.threadId, status?.pr ?? null);
     }
     return map;
-  }, [threadGitStatusCwds, threadGitStatusQueries, threadGitTargets]);
+  }, [statusByCwd, threadGitTargets]);
+  const gitStatusByProjectId = useMemo(() => {
+    const map = new Map<string, GitStatusResult>();
+    for (const project of projects) {
+      const status = statusByCwd.get(project.cwd);
+      if (status) {
+        map.set(project.id, status);
+      }
+    }
+    return map;
+  }, [statusByCwd, projects]);
   const projectBrowserQuery = useQuery({
-    queryKey: [
-      "projects",
-      "browse-directory",
-      projectBrowserRootPath,
-      projectBrowserCurrentPath,
-    ],
+    queryKey: ["projects", "browse-directory", projectBrowserRootPath, projectBrowserCurrentPath],
     queryFn: async () => {
       const api = readNativeApi();
       if (!api || !projectBrowserRootPath || !projectBrowserCurrentPath) {
@@ -565,10 +475,7 @@ export default function Sidebar({
         directoryPath: projectBrowserCurrentPath,
       });
     },
-    enabled:
-      addingProject &&
-      projectBrowserRootPath !== null &&
-      projectBrowserCurrentPath !== null,
+    enabled: addingProject && projectBrowserRootPath !== null && projectBrowserCurrentPath !== null,
   });
   const createProjectDirectoryMutation = useMutation({
     mutationFn: async (name: string) => {
@@ -584,31 +491,27 @@ export default function Sidebar({
     },
   });
 
-  const openPrLink = useCallback(
-    (event: React.MouseEvent<HTMLElement>, prUrl: string) => {
-      event.preventDefault();
-      event.stopPropagation();
+  const openPrLink = useCallback((event: React.MouseEvent<HTMLElement>, prUrl: string) => {
+    event.preventDefault();
+    event.stopPropagation();
 
-      const api = readNativeApi();
-      if (!api) {
-        toastManager.add({
-          type: "error",
-          title: "Link opening is unavailable.",
-        });
-        return;
-      }
-
-      void api.shell.openExternal(prUrl).catch((error) => {
-        toastManager.add({
-          type: "error",
-          title: "Unable to open PR link",
-          description:
-            error instanceof Error ? error.message : "An error occurred.",
-        });
+    const api = readNativeApi();
+    if (!api) {
+      toastManager.add({
+        type: "error",
+        title: "Link opening is unavailable.",
       });
-    },
-    [],
-  );
+      return;
+    }
+
+    void api.shell.openExternal(prUrl).catch((error) => {
+      toastManager.add({
+        type: "error",
+        title: "Unable to open PR link",
+        description: error instanceof Error ? error.message : "An error occurred.",
+      });
+    });
+  }, []);
 
   const collapseMobileSidebar = useCallback(() => {
     if (!isMobile) {
@@ -641,9 +544,7 @@ export default function Sidebar({
         setProjectDraftThreadId,
       } = useComposerDraftStore.getState();
       const storedDraftThread = getDraftThreadByProjectId(projectId);
-      const latestActiveDraftThread = routeThreadId
-        ? getDraftThread(routeThreadId)
-        : null;
+      const latestActiveDraftThread = routeThreadId ? getDraftThread(routeThreadId) : null;
       if (storedDraftThread) {
         return (async () => {
           setProjectDraftThreadId(projectId, storedDraftThread.threadId);
@@ -685,9 +586,7 @@ export default function Sidebar({
 
   const focusMostRecentThreadForProject = useCallback(
     (projectId: ProjectId) => {
-      const latestThread = findNewestThread(
-        threadsByProjectId.get(projectId) ?? [],
-      );
+      const latestThread = findNewestThread(threadsByProjectId.get(projectId) ?? []);
       if (!latestThread) return;
 
       void navigate({
@@ -741,9 +640,7 @@ export default function Sidebar({
           type: "error",
           title: "Unable to add project",
           description:
-            error instanceof Error
-              ? error.message
-              : "An error occurred while adding the project.",
+            error instanceof Error ? error.message : "An error occurred while adding the project.",
         });
         return;
       }
@@ -802,8 +699,7 @@ export default function Sidebar({
       return;
     }
     try {
-      const result =
-        await createProjectDirectoryMutation.mutateAsync(folderName);
+      const result = await createProjectDirectoryMutation.mutateAsync(folderName);
       setNewProjectFolderName("");
       setProjectBrowserCurrentPath(result.path);
       await queryClient.invalidateQueries({
@@ -814,17 +710,10 @@ export default function Sidebar({
         type: "error",
         title: "Unable to create folder",
         description:
-          error instanceof Error
-            ? error.message
-            : "An error occurred while creating the folder.",
+          error instanceof Error ? error.message : "An error occurred while creating the folder.",
       });
     }
-  }, [
-    createProjectDirectoryMutation,
-    newProjectFolderName,
-    projectBrowserRootPath,
-    queryClient,
-  ]);
+  }, [createProjectDirectoryMutation, newProjectFolderName, projectBrowserRootPath, queryClient]);
 
   const cancelRename = useCallback(() => {
     setRenamingThreadId(null);
@@ -870,8 +759,7 @@ export default function Sidebar({
         toastManager.add({
           type: "error",
           title: "Failed to rename thread",
-          description:
-            error instanceof Error ? error.message : "An error occurred.",
+          description: error instanceof Error ? error.message : "An error occurred.",
         });
       }
       finishRename();
@@ -918,8 +806,7 @@ export default function Sidebar({
           toastManager.add({
             type: "error",
             title: "Failed to copy thread ID",
-            description:
-              error instanceof Error ? error.message : "An error occurred.",
+            description: error instanceof Error ? error.message : "An error occurred.",
           });
         }
         return;
@@ -987,8 +874,7 @@ export default function Sidebar({
         toastManager.add({
           type: "error",
           title: `Failed to delete "${thread.title}"`,
-          description:
-            error instanceof Error ? error.message : "An error occurred.",
+          description: error instanceof Error ? error.message : "An error occurred.",
         });
       }
     },
@@ -1017,8 +903,7 @@ export default function Sidebar({
 
       const project = projects.find((entry) => entry.id === projectId);
       if (!project) return;
-      const projectThreads =
-        projectThreadLists.get(projectId)?.allThreads ?? [];
+      const projectThreads = projectThreadLists.get(projectId)?.allThreads ?? [];
       if (projectThreads.length > 0) {
         toastManager.add({
           type: "warning",
@@ -1029,22 +914,16 @@ export default function Sidebar({
       }
 
       const confirmed = await api.dialogs.confirm(
-        [
-          `Delete project "${project.name}"?`,
-          "This action cannot be undone.",
-        ].join("\n"),
+        [`Delete project "${project.name}"?`, "This action cannot be undone."].join("\n"),
       );
       if (!confirmed) return;
 
       const projectDraftThread = getDraftThreadByProjectId(projectId);
       const activeThreadProjectId =
-        (routeThreadId
-          ? threads.find((thread) => thread.id === routeThreadId)?.projectId
-          : null) ??
+        (routeThreadId ? threads.find((thread) => thread.id === routeThreadId)?.projectId : null) ??
         (routeThreadId ? getDraftThread(routeThreadId)?.projectId : null);
       const shouldNavigateToFallback =
-        activeThreadProjectId === projectId ||
-        routeProjectShell.projectId === projectId;
+        activeThreadProjectId === projectId || routeProjectShell.projectId === projectId;
       const fallbackThreadId =
         threads
           .filter((thread) => thread.projectId !== projectId)
@@ -1054,9 +933,7 @@ export default function Sidebar({
         useThreadSelectionStore
           .getState()
           .removeFromSelection(
-            removedProject.removedThreads.map(
-              (removedThread) => removedThread.thread.id,
-            ),
+            removedProject.removedThreads.map((removedThread) => removedThread.thread.id),
           );
       }
       if (shouldNavigateToFallback) {
@@ -1083,17 +960,13 @@ export default function Sidebar({
         }
         clearProjectDraftThreadId(projectId);
       } catch (error) {
-        const message =
-          error instanceof Error
-            ? error.message
-            : "Unknown error deleting project.";
+        const message = error instanceof Error ? error.message : "Unknown error deleting project.";
         restoreRemovedProject(removedProject);
         if (isProjectDeleteBlockedByActiveThreads(message)) {
           toastManager.add({
             type: "warning",
             title: "Project is not empty",
-            description:
-              "Delete all threads in this project before deleting it.",
+            description: "Delete all threads in this project before deleting it.",
           });
           return;
         }
@@ -1124,10 +997,7 @@ export default function Sidebar({
     async (projectId: ProjectId) => {
       const project = projects.find((entry) => entry.id === projectId);
       if (!project) return;
-      const shell = ensureProjectShell(
-        project.id,
-        defaultProjectShellConfig(project),
-      );
+      const shell = ensureProjectShell(project.id, defaultProjectShellConfig(project));
       setActiveShell(project.id, shell.id);
       await openShells(project.id);
     },
@@ -1138,10 +1008,7 @@ export default function Sidebar({
     async (projectId: ProjectId) => {
       const project = projects.find((entry) => entry.id === projectId);
       if (!project) return;
-      const shell = createProjectShell(
-        project.id,
-        defaultProjectShellConfig(project),
-      );
+      const shell = createProjectShell(project.id, defaultProjectShellConfig(project));
       setActiveShell(project.id, shell.id);
       await openShells(project.id);
     },
@@ -1190,11 +1057,7 @@ export default function Sidebar({
   }, [collapseMobileSidebar, navigate]);
 
   const handleThreadClick = useCallback(
-    (
-      event: MouseEvent,
-      threadId: ThreadId,
-      orderedProjectThreadIds: readonly ThreadId[],
-    ) => {
+    (event: MouseEvent, threadId: ThreadId, orderedProjectThreadIds: readonly ThreadId[]) => {
       const isMac = isMacPlatform(navigator.platform);
       const isModClick = isMac ? event.metaKey : event.ctrlKey;
       const isShiftClick = event.shiftKey;
@@ -1337,13 +1200,8 @@ export default function Sidebar({
       const activeThread = routeThreadId
         ? threads.find((thread) => thread.id === routeThreadId)
         : undefined;
-      const activeDraftThread = routeThreadId
-        ? getDraftThread(routeThreadId)
-        : null;
-      const projectId =
-        activeThread?.projectId ??
-        activeDraftThread?.projectId ??
-        projects[0]?.id;
+      const activeDraftThread = routeThreadId ? getDraftThread(routeThreadId) : null;
+      const projectId = activeThread?.projectId ?? activeDraftThread?.projectId ?? projects[0]?.id;
       if (!projectId) return;
       const command = resolveShortcutCommand(event, keybindings, {
         context: {
@@ -1370,14 +1228,7 @@ export default function Sidebar({
     return () => {
       window.removeEventListener("keydown", onWindowKeyDown);
     };
-  }, [
-    getDraftThread,
-    handleNewThread,
-    keybindings,
-    projects,
-    routeThreadId,
-    threads,
-  ]);
+  }, [getDraftThread, handleNewThread, keybindings, projects, routeThreadId, threads]);
 
   useEffect(() => {
     const onTerminalToggleShortcut = (event: KeyboardEvent) => {
@@ -1386,10 +1237,7 @@ export default function Sidebar({
         ? threads.find((thread) => thread.id === routeThreadId)
         : undefined;
       const projectId =
-        routeProjectShell.projectId ??
-        activeThread?.projectId ??
-        projects[0]?.id ??
-        null;
+        routeProjectShell.projectId ?? activeThread?.projectId ?? projects[0]?.id ?? null;
       if (!projectId) return;
       const command = resolveShortcutCommand(event, keybindings, {
         context: {
@@ -1454,15 +1302,13 @@ export default function Sidebar({
     };
   }, []);
 
-  const showDesktopUpdateButton =
-    isElectron && shouldShowDesktopUpdateButton(desktopUpdateState);
+  const showDesktopUpdateButton = isElectron && shouldShowDesktopUpdateButton(desktopUpdateState);
 
   const desktopUpdateTooltip = desktopUpdateState
     ? getDesktopUpdateButtonTooltip(desktopUpdateState)
     : "Update available";
 
-  const desktopUpdateButtonDisabled =
-    isDesktopUpdateButtonDisabled(desktopUpdateState);
+  const desktopUpdateButtonDisabled = isDesktopUpdateButtonDisabled(desktopUpdateState);
   const desktopUpdateButtonAction = desktopUpdateState
     ? resolveDesktopUpdateButtonAction(desktopUpdateState)
     : "none";
@@ -1487,8 +1333,7 @@ export default function Sidebar({
   const handleDesktopUpdateButtonClick = useCallback(() => {
     const bridge = window.desktopBridge;
     if (!bridge || !desktopUpdateState) return;
-    if (desktopUpdateButtonDisabled || desktopUpdateButtonAction === "none")
-      return;
+    if (desktopUpdateButtonDisabled || desktopUpdateButtonAction === "none") return;
 
     if (desktopUpdateButtonAction === "download") {
       void bridge
@@ -1498,8 +1343,7 @@ export default function Sidebar({
             toastManager.add({
               type: "success",
               title: "Update downloaded",
-              description:
-                "Restart the app from the update button to install it.",
+              description: "Restart the app from the update button to install it.",
             });
           }
           if (!shouldToastDesktopUpdateActionResult(result)) return;
@@ -1515,10 +1359,7 @@ export default function Sidebar({
           toastManager.add({
             type: "error",
             title: "Could not start update download",
-            description:
-              error instanceof Error
-                ? error.message
-                : "An unexpected error occurred.",
+            description: error instanceof Error ? error.message : "An unexpected error occurred.",
           });
         });
       return;
@@ -1541,18 +1382,11 @@ export default function Sidebar({
           toastManager.add({
             type: "error",
             title: "Could not install update",
-            description:
-              error instanceof Error
-                ? error.message
-                : "An unexpected error occurred.",
+            description: error instanceof Error ? error.message : "An unexpected error occurred.",
           });
         });
     }
-  }, [
-    desktopUpdateButtonAction,
-    desktopUpdateButtonDisabled,
-    desktopUpdateState,
-  ]);
+  }, [desktopUpdateButtonAction, desktopUpdateButtonDisabled, desktopUpdateState]);
 
   const expandThreadListForProject = useCallback((projectId: ProjectId) => {
     setExpandedThreadListsByProject((current) => {
@@ -1575,12 +1409,9 @@ export default function Sidebar({
     projectBrowserQuery.data?.directoryPath ?? projectBrowserCurrentPath;
   const projectBrowserParentPath = projectBrowserQuery.data?.parentPath ?? null;
   const projectBrowserEntries = projectBrowserQuery.data?.entries ?? [];
-  const visibleProjectBrowserEntries = filterProjectBrowserEntries(
-    projectBrowserEntries,
-    {
-      showHidden: showHiddenProjectBrowserEntries,
-    },
-  );
+  const visibleProjectBrowserEntries = filterProjectBrowserEntries(projectBrowserEntries, {
+    showHidden: showHiddenProjectBrowserEntries,
+  });
   const projectBrowserHasHiddenEntries = projectBrowserEntries.some((entry) =>
     isHiddenProjectBrowserEntry(entry),
   );
@@ -1588,7 +1419,6 @@ export default function Sidebar({
 
   const wordmark = (
     <div className="flex items-center gap-2">
-      <SidebarTrigger className="shrink-0 md:hidden" />
       <Tooltip>
         <TooltipTrigger
           render={
@@ -1629,9 +1459,7 @@ export default function Sidebar({
                     </button>
                   }
                 />
-                <TooltipPopup side="bottom">
-                  {desktopUpdateTooltip}
-                </TooltipPopup>
+                <TooltipPopup side="bottom">{desktopUpdateTooltip}</TooltipPopup>
               </Tooltip>
             )}
           </SidebarHeader>
@@ -1645,27 +1473,6 @@ export default function Sidebar({
           )}
         >
           {wordmark}
-          {isMobile ? (
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                className="inline-flex min-h-11 items-center justify-center rounded-2xl border border-dashed border-border bg-background px-3 text-sm font-medium text-foreground/85 transition-colors duration-150 hover:border-ring hover:text-foreground"
-                onClick={openProjectBrowser}
-              >
-                + Add project
-              </button>
-              <button
-                type="button"
-                className="inline-flex min-h-11 items-center justify-center gap-2 rounded-2xl border border-border bg-background px-3 text-sm font-medium text-foreground/80 transition-colors duration-150 hover:border-ring hover:text-foreground"
-                onClick={() => {
-                  void openSettingsFromSidebar();
-                }}
-              >
-                <SettingsIcon className="size-4" />
-                <span>Settings</span>
-              </button>
-            </div>
-          ) : null}
         </SidebarHeader>
       )}
 
@@ -1707,14 +1514,9 @@ export default function Sidebar({
             {sortedProjects.map((project) => {
               const projectThreadList = projectThreadLists.get(project.id);
               const projectThreads = projectThreadList?.allThreads ?? [];
-              const projectShells = selectProjectShellCollection(
-                shellStateByProjectId,
-                project.id,
-              );
-              const isThreadListExpanded =
-                projectThreadList?.isExpanded ?? false;
-              const hasHiddenThreads =
-                projectThreadList?.hasHiddenThreads ?? false;
+              const projectShells = selectProjectShellCollection(shellStateByProjectId, project.id);
+              const isThreadListExpanded = projectThreadList?.isExpanded ?? false;
+              const hasHiddenThreads = projectThreadList?.hasHiddenThreads ?? false;
               const visibleThreads = projectThreadList?.visibleThreads ?? [];
               const sortedProjectThreads = sortThreadsForSidebar(
                 threads.filter((t) => t.projectId === project.id),
@@ -1725,17 +1527,13 @@ export default function Sidebar({
                   resolveThreadStatusPill({
                     thread,
                     hasPendingApprovals:
-                      threadSidebarStateById.get(thread.id)
-                        ?.hasPendingApprovals ?? false,
+                      threadSidebarStateById.get(thread.id)?.hasPendingApprovals ?? false,
                     hasPendingUserInput:
-                      threadSidebarStateById.get(thread.id)
-                        ?.hasPendingUserInput ?? false,
+                      threadSidebarStateById.get(thread.id)?.hasPendingUserInput ?? false,
                   }),
                 ),
               );
-              const orderedProjectThreadIds = sortedProjectThreads.map(
-                (t) => t.id,
-              );
+              const orderedProjectThreadIds = sortedProjectThreads.map((t) => t.id);
 
               return (
                 <Collapsible
@@ -1817,6 +1615,22 @@ export default function Sidebar({
                             </span>
                           ) : null}
                         </div>
+                        {(() => {
+                          const projectGitStatus = gitStatusByProjectId.get(project.id);
+                          if (!projectGitStatus?.hasWorkingTreeChanges) return null;
+                          const ins = projectGitStatus.workingTree.insertions;
+                          const del = projectGitStatus.workingTree.deletions;
+                          if (ins === 0 && del === 0) return null;
+                          return (
+                            <span className="shrink-0 font-mono text-[10px] leading-none">
+                              <span className="text-emerald-600 dark:text-emerald-300/90">
+                                +{ins}
+                              </span>
+                              <span className="mx-0.5 text-muted-foreground/40">/</span>
+                              <span className="text-red-600 dark:text-red-300/90">-{del}</span>
+                            </span>
+                          );
+                        })()}
                       </CollapsibleTrigger>
                       <Tooltip>
                         <TooltipTrigger
@@ -1864,18 +1678,11 @@ export default function Sidebar({
                           const isSelected = selectedThreadIds.has(thread.id);
                           const isHighlighted = isActive || isSelected;
                           const threadStatus =
-                            threadSidebarStateById.get(thread.id)?.statusPill ??
-                            null;
-                          const prStatus = prStatusIndicator(
-                            prByThreadId.get(thread.id) ?? null,
-                          );
+                            threadSidebarStateById.get(thread.id)?.statusPill ?? null;
+                          const prStatus = prStatusIndicator(prByThreadId.get(thread.id) ?? null);
 
                           return (
-                            <SidebarMenuSubItem
-                              key={thread.id}
-                              className="w-full"
-                              data-thread-item
-                            >
+                            <SidebarMenuSubItem key={thread.id} className="w-full" data-thread-item>
                               <SidebarMenuSubButton
                                 render={<div role="button" tabIndex={0} />}
                                 size="sm"
@@ -1894,18 +1701,10 @@ export default function Sidebar({
                                       }),
                                 )}
                                 onClick={(event) => {
-                                  handleThreadClick(
-                                    event,
-                                    thread.id,
-                                    orderedProjectThreadIds,
-                                  );
+                                  handleThreadClick(event, thread.id, orderedProjectThreadIds);
                                 }}
                                 onKeyDown={(event) => {
-                                  if (
-                                    event.key !== "Enter" &&
-                                    event.key !== " "
-                                  )
-                                    return;
+                                  if (event.key !== "Enter" && event.key !== " ") return;
                                   event.preventDefault();
                                   if (selectedThreadIds.size > 0) {
                                     clearSelection();
@@ -1951,9 +1750,7 @@ export default function Sidebar({
                                           </button>
                                         }
                                       />
-                                      <TooltipPopup side="top">
-                                        {prStatus.tooltip}
-                                      </TooltipPopup>
+                                      <TooltipPopup side="top">{prStatus.tooltip}</TooltipPopup>
                                     </Tooltip>
                                   )}
                                   {threadStatus && (
@@ -1961,24 +1758,16 @@ export default function Sidebar({
                                       className={cn(
                                         "inline-flex items-center gap-1",
                                         threadStatus.colorClass,
-                                        isMobile
-                                          ? "text-[11px]"
-                                          : "text-[10px]",
+                                        isMobile ? "text-[11px]" : "text-[10px]",
                                       )}
                                     >
                                       <span
                                         className={`h-1.5 w-1.5 rounded-full ${threadStatus.dotClass} ${
-                                          threadStatus.pulse
-                                            ? "animate-pulse"
-                                            : ""
+                                          threadStatus.pulse ? "animate-pulse" : ""
                                         }`}
                                       />
                                       <span
-                                        className={cn(
-                                          isMobile
-                                            ? "inline"
-                                            : "hidden md:inline",
-                                        )}
+                                        className={cn(isMobile ? "inline" : "hidden md:inline")}
                                       >
                                         {threadStatus.label}
                                       </span>
@@ -1987,10 +1776,7 @@ export default function Sidebar({
                                   {renamingThreadId === thread.id ? (
                                     <input
                                       ref={(el) => {
-                                        if (
-                                          el &&
-                                          renamingInputRef.current !== el
-                                        ) {
+                                        if (el && renamingInputRef.current !== el) {
                                           renamingInputRef.current = el;
                                           el.focus();
                                           el.select();
@@ -1998,19 +1784,13 @@ export default function Sidebar({
                                       }}
                                       className="min-w-0 flex-1 truncate text-xs bg-transparent outline-none border border-ring rounded px-0.5"
                                       value={renamingTitle}
-                                      onChange={(e) =>
-                                        setRenamingTitle(e.target.value)
-                                      }
+                                      onChange={(e) => setRenamingTitle(e.target.value)}
                                       onKeyDown={(e) => {
                                         e.stopPropagation();
                                         if (e.key === "Enter") {
                                           e.preventDefault();
                                           renamingCommittedRef.current = true;
-                                          void commitRename(
-                                            thread.id,
-                                            renamingTitle,
-                                            thread.title,
-                                          );
+                                          void commitRename(thread.id, renamingTitle, thread.title);
                                         } else if (e.key === "Escape") {
                                           e.preventDefault();
                                           renamingCommittedRef.current = true;
@@ -2019,11 +1799,7 @@ export default function Sidebar({
                                       }}
                                       onBlur={() => {
                                         if (!renamingCommittedRef.current) {
-                                          void commitRename(
-                                            thread.id,
-                                            renamingTitle,
-                                            thread.title,
-                                          );
+                                          void commitRename(thread.id, renamingTitle, thread.title);
                                         }
                                       }}
                                       onClick={(e) => e.stopPropagation()}
@@ -2032,9 +1808,7 @@ export default function Sidebar({
                                     <span
                                       className={cn(
                                         "min-w-0 flex-1 truncate",
-                                        isMobile
-                                          ? "text-sm leading-5"
-                                          : "text-xs",
+                                        isMobile ? "text-sm leading-5" : "text-xs",
                                       )}
                                     >
                                       {thread.title}
@@ -2054,9 +1828,7 @@ export default function Sidebar({
                                         : "text-muted-foreground/40"
                                     }`}
                                   >
-                                    {formatRelativeTime(
-                                      thread.updatedAt ?? thread.createdAt,
-                                    )}
+                                    {formatRelativeTime(thread.updatedAt ?? thread.createdAt)}
                                   </span>
                                 </div>
                               </SidebarMenuSubButton>
@@ -2119,52 +1891,33 @@ export default function Sidebar({
                             (activeProjectTool === "shells" &&
                               activeProjectToolsProjectId === project.id &&
                               projectShells.activeShellId === shell.id);
-                          const isRunning =
-                            projectShells.runningShellIds.includes(shell.id);
+                          const isRunning = projectShells.runningShellIds.includes(shell.id);
 
                           return (
-                            <SidebarMenuSubItem
-                              key={shell.id}
-                              className="w-full"
-                            >
+                            <SidebarMenuSubItem key={shell.id} className="w-full">
                               <SidebarMenuSubButton
                                 render={<div role="button" tabIndex={0} />}
                                 size="sm"
                                 isActive={isActive}
                                 className={cn(
                                   "w-full translate-x-0 cursor-default justify-start px-2 text-left hover:bg-accent hover:text-foreground",
-                                  isMobile
-                                    ? "min-h-12 rounded-2xl px-3 py-2.5"
-                                    : "h-7",
+                                  isMobile ? "min-h-12 rounded-2xl px-3 py-2.5" : "h-7",
                                   isActive
                                     ? "bg-accent/85 text-foreground font-medium ring-1 ring-border/70 dark:bg-accent/55 dark:ring-border/50"
                                     : "text-muted-foreground",
                                 )}
                                 onClick={() => {
-                                  void selectShellFromSidebar(
-                                    project.id,
-                                    shell.id,
-                                  );
+                                  void selectShellFromSidebar(project.id, shell.id);
                                 }}
                                 onKeyDown={(event) => {
-                                  if (
-                                    event.key !== "Enter" &&
-                                    event.key !== " "
-                                  )
-                                    return;
+                                  if (event.key !== "Enter" && event.key !== " ") return;
                                   event.preventDefault();
-                                  void selectShellFromSidebar(
-                                    project.id,
-                                    shell.id,
-                                  );
+                                  void selectShellFromSidebar(project.id, shell.id);
                                 }}
                               >
                                 <div className="flex min-w-0 flex-1 items-center gap-1.5 text-left">
                                   <TerminalIcon
-                                    className={cn(
-                                      "shrink-0",
-                                      isMobile ? "size-4" : "size-3.5",
-                                    )}
+                                    className={cn("shrink-0", isMobile ? "size-4" : "size-3.5")}
                                   />
                                   <div className="min-w-0 flex-1">
                                     <span
@@ -2178,9 +1931,7 @@ export default function Sidebar({
                                     <span
                                       className={cn(
                                         "block truncate text-muted-foreground/70",
-                                        isMobile
-                                          ? "text-[11px]"
-                                          : "text-[10px]",
+                                        isMobile ? "text-[11px]" : "text-[10px]",
                                       )}
                                     >
                                       {shell.cwd}
@@ -2200,9 +1951,7 @@ export default function Sidebar({
                                   )}
                                   <span
                                     className={`${isMobile ? "text-[11px]" : "text-[10px]"} ${
-                                      isActive
-                                        ? "text-foreground/65"
-                                        : "text-muted-foreground/40"
+                                      isActive ? "text-foreground/65" : "text-muted-foreground/40"
                                     }`}
                                   >
                                     {formatRelativeTime(shell.createdAt)}
@@ -2260,38 +2009,68 @@ export default function Sidebar({
       </SidebarContent>
 
       <SidebarSeparator />
-      <SidebarFooter className="p-2">
-        <SidebarMenu>
-          <SidebarMenuItem>
+      <SidebarFooter className={cn("p-2", isMobile && "px-3 pb-3")}>
+        {isMobile ? (
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              className="inline-flex min-h-11 items-center justify-center rounded-2xl border border-dashed border-border bg-background px-3 text-sm font-medium text-foreground/85 transition-colors duration-150 hover:border-ring hover:text-foreground"
+              onClick={openProjectBrowser}
+            >
+              + Add project
+            </button>
             {isOnSettings ? (
-              <SidebarMenuButton
-                size="sm"
-                className="gap-2 px-2 py-1.5 text-muted-foreground/70 hover:bg-accent hover:text-foreground"
+              <button
+                type="button"
+                className="inline-flex min-h-11 items-center justify-center gap-2 rounded-2xl border border-border bg-background px-3 text-sm font-medium text-foreground/80 transition-colors duration-150 hover:border-ring hover:text-foreground"
                 onClick={() => window.history.back()}
               >
-                <ArrowLeftIcon className="size-3.5" />
-                <span className="text-xs">Back</span>
-              </SidebarMenuButton>
+                <ArrowLeftIcon className="size-4" />
+                <span>Back</span>
+              </button>
             ) : (
-              <SidebarMenuButton
-                size="sm"
-                className="gap-2 px-2 py-1.5 text-muted-foreground/70 hover:bg-accent hover:text-foreground"
+              <button
+                type="button"
+                className="inline-flex min-h-11 items-center justify-center gap-2 rounded-2xl border border-border bg-background px-3 text-sm font-medium text-foreground/80 transition-colors duration-150 hover:border-ring hover:text-foreground"
                 onClick={() => {
                   void openSettingsFromSidebar();
                 }}
               >
-                <SettingsIcon className="size-3.5" />
-                <span className="text-xs">Settings</span>
-              </SidebarMenuButton>
+                <SettingsIcon className="size-4" />
+                <span>Settings</span>
+              </button>
             )}
-          </SidebarMenuItem>
-        </SidebarMenu>
+          </div>
+        ) : (
+          <SidebarMenu>
+            <SidebarMenuItem>
+              {isOnSettings ? (
+                <SidebarMenuButton
+                  size="sm"
+                  className="gap-2 px-2 py-1.5 text-muted-foreground/70 hover:bg-accent hover:text-foreground"
+                  onClick={() => window.history.back()}
+                >
+                  <ArrowLeftIcon className="size-3.5" />
+                  <span className="text-xs">Back</span>
+                </SidebarMenuButton>
+              ) : (
+                <SidebarMenuButton
+                  size="sm"
+                  className="gap-2 px-2 py-1.5 text-muted-foreground/70 hover:bg-accent hover:text-foreground"
+                  onClick={() => {
+                    void openSettingsFromSidebar();
+                  }}
+                >
+                  <SettingsIcon className="size-3.5" />
+                  <span className="text-xs">Settings</span>
+                </SidebarMenuButton>
+              )}
+            </SidebarMenuItem>
+          </SidebarMenu>
+        )}
       </SidebarFooter>
 
-      <Dialog
-        open={addingProject}
-        onOpenChange={handleProjectBrowserOpenChange}
-      >
+      <Dialog open={addingProject} onOpenChange={handleProjectBrowserOpenChange}>
         <DialogPopup
           className={cn(
             "max-w-2xl",
@@ -2302,16 +2081,10 @@ export default function Sidebar({
           <DialogHeader>
             <DialogTitle>Add project</DialogTitle>
             <DialogDescription>
-              Browse folders under the server cwd and pick one as the project
-              root.
+              Browse folders under the server cwd and pick one as the project root.
             </DialogDescription>
           </DialogHeader>
-          <DialogPanel
-            className={cn(
-              "space-y-4",
-              isMobile && "flex min-h-0 flex-1 flex-col p-4",
-            )}
-          >
+          <DialogPanel className={cn("space-y-4", isMobile && "flex min-h-0 flex-1 flex-col p-4")}>
             <div className="rounded-xl border border-border bg-muted/30">
               <div className="border-b border-border px-4 py-3">
                 <div className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground/70">
@@ -2319,9 +2092,7 @@ export default function Sidebar({
                   <span>Current folder</span>
                 </div>
                 <p className="mt-2 break-all font-mono text-xs text-foreground/90">
-                  {projectBrowserDirectoryPath ??
-                    projectBrowserRootPath ??
-                    "Waiting for server..."}
+                  {projectBrowserDirectoryPath ?? projectBrowserRootPath ?? "Waiting for server..."}
                 </p>
                 <div className="mt-3 flex flex-wrap gap-2">
                   <Button
@@ -2331,9 +2102,7 @@ export default function Sidebar({
                       if (!projectBrowserParentPath) return;
                       setProjectBrowserCurrentPath(projectBrowserParentPath);
                     }}
-                    disabled={
-                      !projectBrowserParentPath || projectBrowserQuery.isLoading
-                    }
+                    disabled={!projectBrowserParentPath || projectBrowserQuery.isLoading}
                   >
                     <ArrowUpIcon className="size-4" />
                     Up
@@ -2345,20 +2114,15 @@ export default function Sidebar({
                       onClick={() => void handlePickFolder()}
                       disabled={isPickingFolder || isAddingProject}
                     >
-                      {isPickingFolder
-                        ? "Picking outside cwd..."
-                        : "Pick outside cwd"}
+                      {isPickingFolder ? "Picking outside cwd..." : "Pick outside cwd"}
                     </Button>
                   )}
                 </div>
                 <label className="mt-3 flex items-center justify-between gap-3 rounded-lg border border-border/70 bg-background/70 px-3 py-2 text-sm">
                   <div className="min-w-0">
-                    <p className="font-medium text-foreground">
-                      Show hidden files and folders
-                    </p>
+                    <p className="font-medium text-foreground">Show hidden files and folders</p>
                     <p className="text-xs text-muted-foreground">
-                      Hidden entries stay out of the picker unless you enable
-                      them.
+                      Hidden entries stay out of the picker unless you enable them.
                     </p>
                   </div>
                   <Switch
@@ -2371,17 +2135,13 @@ export default function Sidebar({
                 </label>
               </div>
 
-              <ScrollArea
-                className={cn(isMobile ? "h-[min(56dvh,30rem)]" : "h-72")}
-              >
+              <ScrollArea className={cn(isMobile ? "h-[min(56dvh,30rem)]" : "h-72")}>
                 {!projectBrowserRootPath ? (
                   <div className="px-4 py-6 text-sm text-muted-foreground">
                     Waiting for the server cwd.
                   </div>
                 ) : projectBrowserQuery.isLoading ? (
-                  <div className="px-4 py-6 text-sm text-muted-foreground">
-                    Loading folders...
-                  </div>
+                  <div className="px-4 py-6 text-sm text-muted-foreground">Loading folders...</div>
                 ) : projectBrowserQuery.isError ? (
                   <div className="px-4 py-6 text-sm text-destructive">
                     {projectBrowserQuery.error instanceof Error
@@ -2403,13 +2163,9 @@ export default function Sidebar({
                           type="button"
                           className={cn(
                             "flex w-full items-center gap-3 text-left text-sm transition-colors hover:bg-accent",
-                            isMobile
-                              ? "min-h-12 rounded-2xl px-3 py-3"
-                              : "rounded-lg px-3 py-2",
+                            isMobile ? "min-h-12 rounded-2xl px-3 py-3" : "rounded-lg px-3 py-2",
                           )}
-                          onClick={() =>
-                            setProjectBrowserCurrentPath(entry.path)
-                          }
+                          onClick={() => setProjectBrowserCurrentPath(entry.path)}
                         >
                           <FolderIcon className="size-4 shrink-0 text-muted-foreground/80" />
                           <span className="min-w-0 flex-1 truncate text-foreground">
@@ -2422,15 +2178,11 @@ export default function Sidebar({
                           key={entry.path}
                           className={cn(
                             "flex w-full items-center gap-3 text-left text-sm text-muted-foreground/75",
-                            isMobile
-                              ? "min-h-12 rounded-2xl px-3 py-3"
-                              : "rounded-lg px-3 py-2",
+                            isMobile ? "min-h-12 rounded-2xl px-3 py-3" : "rounded-lg px-3 py-2",
                           )}
                         >
                           <FileIcon className="size-4 shrink-0 text-muted-foreground/65" />
-                          <span className="min-w-0 flex-1 truncate">
-                            {entry.name}
-                          </span>
+                          <span className="min-w-0 flex-1 truncate">{entry.name}</span>
                         </div>
                       ),
                     )}
@@ -2448,9 +2200,7 @@ export default function Sidebar({
                 <Input
                   placeholder="New folder name"
                   value={newProjectFolderName}
-                  onChange={(event) =>
-                    setNewProjectFolderName(event.target.value)
-                  }
+                  onChange={(event) => setNewProjectFolderName(event.target.value)}
                   onKeyDown={(event) => {
                     if (event.key === "Enter") {
                       event.preventDefault();
@@ -2481,13 +2231,9 @@ export default function Sidebar({
               Cancel
             </Button>
             <Button
-              onClick={() =>
-                void addProjectFromPath(projectBrowserDirectoryPath ?? "")
-              }
+              onClick={() => void addProjectFromPath(projectBrowserDirectoryPath ?? "")}
               disabled={
-                !projectBrowserDirectoryPath ||
-                projectBrowserQuery.isLoading ||
-                isAddingProject
+                !projectBrowserDirectoryPath || projectBrowserQuery.isLoading || isAddingProject
               }
             >
               {isAddingProject

@@ -1065,11 +1065,49 @@ export const makeGitManager = Effect.gen(function* () {
     },
   );
 
+  const generateCommitMessage: GitManagerShape["generateCommitMessage"] = (input) =>
+    Effect.gen(function* () {
+      const context = yield* gitCore.readStagedContext(input.cwd);
+      if (!context) {
+        return yield* new GitManagerError({
+          operation: "generateCommitMessage",
+          detail: "No staged changes. Stage files before generating a commit message.",
+        });
+      }
+
+      const details = yield* gitCore.statusDetails(input.cwd);
+
+      const generated = yield* textGeneration
+        .generateCommitMessage({
+          cwd: input.cwd,
+          branch: details.branch,
+          stagedSummary: limitContext(context.stagedSummary, 8_000),
+          stagedPatch: limitContext(context.stagedPatch, 50_000),
+        })
+        .pipe(Effect.map((result) => sanitizeCommitMessage(result)));
+
+      return {
+        subject: generated.subject,
+        body: generated.body,
+      };
+    }).pipe(
+      Effect.mapError((cause) =>
+        cause instanceof GitManagerError
+          ? cause
+          : new GitManagerError({
+              operation: "generateCommitMessage",
+              detail: cause instanceof Error ? cause.message : "Failed to generate commit message.",
+              cause,
+            }),
+      ),
+    );
+
   return {
     status,
     resolvePullRequest,
     preparePullRequestThread,
     runStackedAction,
+    generateCommitMessage,
   } satisfies GitManagerShape;
 });
 

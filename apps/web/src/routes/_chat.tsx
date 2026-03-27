@@ -125,7 +125,6 @@ function ChatRouteLayout() {
       defaultOpen
       style={
         {
-          "--app-mobile-bottom-dock-height": mobileBottomNavHeight(showMobileBottomNav),
           "--app-mobile-bottom-nav-height": mobileBottomNavHeight(showMobileBottomNav),
         } as React.CSSProperties
       }

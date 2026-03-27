@@ -214,6 +214,8 @@ export function createWsNativeApi(): NativeApi {
       resolvePullRequest: (input) => transport.request(WS_METHODS.gitResolvePullRequest, input),
       preparePullRequestThread: (input) =>
         transport.request(WS_METHODS.gitPreparePullRequestThread, input),
+      generateCommitMessage: (input) =>
+        transport.request(WS_METHODS.gitGenerateCommitMessage, input, { timeoutMs: null }),
       onActionProgress: (callback) => {
         gitActionProgressListeners.add(callback);
         return () => {

@@ -219,9 +219,12 @@ export default function ProjectShellMobileConsole(props: {
         className={cn(
           "flex-1 min-h-0 w-full resize-none overflow-y-auto border-0 bg-transparent px-3 py-3 font-mono text-[13px] leading-[1.55] text-foreground outline-none",
           "overscroll-contain [scrollbar-width:thin] [-webkit-overflow-scrolling:touch]",
+          "[touch-action:pan-y] [user-select:text] [-webkit-user-select:text]",
         )}
+        inputMode="none"
         readOnly
         spellCheck={false}
+        tabIndex={-1}
         value={deferredOutputText}
         onScroll={(event) => {
           const nextPinned = isScrolledNearBottom(event.currentTarget);

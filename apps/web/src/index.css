@@ -311,9 +311,11 @@ input {
 }
 
 .project-shell-mobile-layout {
+  --project-shell-mobile-prompt-clearance: 0.5rem;
   padding-bottom: calc(
     var(--app-mobile-bottom-dock-height, 0px) + var(--project-shell-mobile-prompt-clearance, 0px)
   );
+  transition: padding-bottom 0.12s ease-out;
 }
 
 .project-shell-mobile-stage,
