@@ -236,7 +236,12 @@ function ChatThreadRouteView() {
 
   if (!shouldUseDiffSheet) {
     return (
-      <DiffPanelInlineLayout diffOpen={diffOpen} onCloseDiff={closeDiff} onOpenDiff={openDiff} renderDiffContent={shouldRenderDiffContent}>
+      <DiffPanelInlineLayout
+        diffOpen={diffOpen}
+        onCloseDiff={closeDiff}
+        onOpenDiff={openDiff}
+        renderDiffContent={shouldRenderDiffContent}
+      >
         <SidebarInset className={CHAT_THREAD_INSET_CLASS_NAME}>
           <ChatView key={threadId} threadId={threadId} />
         </SidebarInset>

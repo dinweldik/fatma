@@ -266,7 +266,9 @@ function renderMentionChipDom(container: HTMLElement, pathValue: string): void {
   container.append(icon, label);
 }
 
-function terminalContextSignature(contexts: ReadonlyArray<TerminalContextDraft> | undefined): string {
+function terminalContextSignature(
+  contexts: ReadonlyArray<TerminalContextDraft> | undefined,
+): string {
   if (!contexts || contexts.length === 0) return "";
   return contexts
     .map((context) =>

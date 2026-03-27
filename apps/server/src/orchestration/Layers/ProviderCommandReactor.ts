@@ -140,7 +140,6 @@ function buildGeneratedWorktreeBranchName(raw: string): string {
   return `${WORKTREE_BRANCH_PREFIX}/${safeFragment}`;
 }
 
-
 const make = Effect.gen(function* () {
   const orchestrationEngine = yield* OrchestrationEngineService;
   const providerService = yield* ProviderService;
@@ -486,7 +485,6 @@ const make = Effect.gen(function* () {
         ),
       );
   });
-
 
   const processTurnStartRequested = Effect.fnUntraced(function* (
     event: Extract<ProviderIntentEvent, { type: "thread.turn-start-requested" }>,

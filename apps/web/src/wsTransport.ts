@@ -149,7 +149,11 @@ export class WsTransport {
     this.connect();
   }
 
-  async request<T = unknown>(method: string, params?: unknown, options?: RequestOptions): Promise<T> {
+  async request<T = unknown>(
+    method: string,
+    params?: unknown,
+    options?: RequestOptions,
+  ): Promise<T> {
     return this.requestInternal<T>(method, params, options);
   }
 
