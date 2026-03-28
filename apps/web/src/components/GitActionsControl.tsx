@@ -114,10 +114,6 @@ function statusLabel(status: GitFileChangeStatus): string {
   return "Modified";
 }
 
-function scopeLabel(scope: ChangeScope): string {
-  return scope === "staged" ? "Staged" : "Changes";
-}
-
 function commitShortcutLabel(): string {
   if (typeof navigator !== "undefined" && /Mac/i.test(navigator.platform)) {
     return "Cmd+Enter";
@@ -452,9 +448,6 @@ function SourceControlPanel({
     unstagePending;
   const pushDisabled =
     !gitStatus?.branch || pushPending || commitPending || stagePending || unstagePending;
-  const remoteUrl = gitStatus?.remoteUrl?.trim()
-    ? gitStatus.remoteUrl
-    : "No origin remote configured";
 
   return (
     <div
