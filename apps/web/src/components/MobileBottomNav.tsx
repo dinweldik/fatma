@@ -154,7 +154,7 @@ export default function MobileBottomNav() {
     <div
       ref={dockRef}
       data-mobile-bottom-dock="true"
-      className="fixed inset-x-0 bottom-0 z-40 border-t border-border/70 bg-background/96 shadow-[0_-12px_32px_rgba(0,0,0,0.18)] backdrop-blur-xl"
+      className="fixed inset-x-0 bottom-0 z-40 border-t border-border/70 bg-background/[0.92] shadow-sm backdrop-blur-md"
       style={{ bottom: "var(--app-mobile-keyboard-inset)" }}
     >
       {shellDockProjectId ? <ProjectShellMobileDock projectId={shellDockProjectId} /> : null}
@@ -165,7 +165,7 @@ export default function MobileBottomNav() {
         <button
           type="button"
           className={cn(
-            "flex min-h-12 flex-1 flex-col items-center justify-center gap-1 rounded-[1rem] px-2 text-[11px] font-medium transition-colors duration-150 hover:bg-accent hover:text-foreground",
+            "flex min-h-12 flex-1 flex-col items-center justify-center gap-1 rounded-[1rem] px-2 text-[11px] font-medium hover:bg-accent hover:text-foreground",
             projectsIsActive ? "bg-accent text-foreground" : "text-muted-foreground",
           )}
           onClick={() => {
@@ -178,7 +178,7 @@ export default function MobileBottomNav() {
         <button
           type="button"
           className={cn(
-            "flex min-h-12 flex-1 flex-col items-center justify-center gap-1 rounded-[1rem] px-2 text-[11px] font-medium transition-colors duration-150 hover:bg-accent hover:text-foreground",
+            "flex min-h-12 flex-1 flex-col items-center justify-center gap-1 rounded-[1rem] px-2 text-[11px] font-medium hover:bg-accent hover:text-foreground",
             chatIsActive ? "bg-accent text-foreground" : "text-muted-foreground",
           )}
           onClick={() => {
@@ -199,7 +199,7 @@ export default function MobileBottomNav() {
           type="button"
           disabled={!canOpenProjectTabs}
           className={cn(
-            "flex min-h-12 flex-1 flex-col items-center justify-center gap-1 rounded-[1rem] px-2 text-[11px] font-medium transition-colors duration-150 hover:bg-accent hover:text-foreground disabled:opacity-40",
+            "flex min-h-12 flex-1 flex-col items-center justify-center gap-1 rounded-[1rem] px-2 text-[11px] font-medium hover:bg-accent hover:text-foreground disabled:opacity-40",
             sourceControlIsActive ? "bg-accent text-foreground" : "text-muted-foreground",
           )}
           onClick={() => {
@@ -217,7 +217,7 @@ export default function MobileBottomNav() {
           type="button"
           disabled={!canOpenProjectTabs}
           className={cn(
-            "flex min-h-12 flex-1 flex-col items-center justify-center gap-1 rounded-[1rem] px-2 text-[11px] font-medium transition-colors duration-150 hover:bg-accent hover:text-foreground disabled:opacity-40",
+            "flex min-h-12 flex-1 flex-col items-center justify-center gap-1 rounded-[1rem] px-2 text-[11px] font-medium hover:bg-accent hover:text-foreground disabled:opacity-40",
             filesIsActive ? "bg-accent text-foreground" : "text-muted-foreground",
           )}
           onClick={() => {
@@ -235,7 +235,7 @@ export default function MobileBottomNav() {
           type="button"
           disabled={!canOpenProjectTabs}
           className={cn(
-            "flex min-h-12 flex-1 flex-col items-center justify-center gap-1 rounded-[1rem] px-2 text-[11px] font-medium transition-colors duration-150 hover:bg-accent hover:text-foreground disabled:opacity-40",
+            "flex min-h-12 flex-1 flex-col items-center justify-center gap-1 rounded-[1rem] px-2 text-[11px] font-medium hover:bg-accent hover:text-foreground disabled:opacity-40",
             shellIsActive ? "bg-accent text-foreground" : "text-muted-foreground",
           )}
           onClick={() => {

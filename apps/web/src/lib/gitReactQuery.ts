@@ -349,7 +349,10 @@ export function gitPreparePullRequestThreadMutationOptions(input: {
   });
 }
 
-export function gitGenerateCommitMessageMutationOptions(input: { cwd: string | null }) {
+export function gitGenerateCommitMessageMutationOptions(input: {
+  cwd: string | null;
+  queryClient: QueryClient;
+}) {
   return mutationOptions({
     mutationKey: gitMutationKeys.generateCommitMessage(input.cwd),
     mutationFn: async () => {
@@ -360,6 +363,9 @@ export function gitGenerateCommitMessageMutationOptions(input: { cwd: string | n
         GIT_GENERATE_COMMIT_MSG_TIMEOUT_MS,
         "Generate commit message",
       );
+    },
+    onSettled: async () => {
+      await invalidateGitQueries(input.queryClient);
     },
   });
 }

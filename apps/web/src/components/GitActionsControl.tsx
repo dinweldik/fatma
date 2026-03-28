@@ -26,6 +26,7 @@ import {
   gitInitMutationOptions,
   gitPullMutationOptions,
   gitPushMutationOptions,
+  gitQueryKeys,
   gitStageFilesMutationOptions,
   gitStatusQueryOptions,
   gitUnstageFilesMutationOptions,
@@ -666,7 +667,7 @@ export default function GitActionsControl({
   const pullMutation = useMutation(gitPullMutationOptions({ cwd: gitCwd, queryClient }));
   const pushMutation = useMutation(gitPushMutationOptions({ cwd: gitCwd, queryClient }));
   const generateCommitMessageMutation = useMutation(
-    gitGenerateCommitMessageMutationOptions({ cwd: gitCwd }),
+    gitGenerateCommitMessageMutationOptions({ cwd: gitCwd, queryClient }),
   );
   const gitStatusQuery = useQuery({
     ...gitStatusQueryOptions(gitCwd),
@@ -790,13 +791,14 @@ export default function GitActionsControl({
     }
     void commitMutation
       .mutateAsync(trimmedMessage)
-      .then((result) => {
+      .then(async (result) => {
         setCommitMessage("");
         toastManager.add({
           type: "success",
           title: "Commit created",
           description: `${result.subject} · ${result.commitSha.slice(0, 7)}`,
         });
+        await queryClient.refetchQueries({ queryKey: gitQueryKeys.status(gitCwd) });
       })
       .catch((error) => {
         handleMutationError("Could not create commit", error);
@@ -806,7 +808,7 @@ export default function GitActionsControl({
   const handlePush = () => {
     void pushMutation
       .mutateAsync()
-      .then((result) => {
+      .then(async (result) => {
         toastManager.add({
           type: result.status === "pushed" ? "success" : "info",
           title: result.status === "pushed" ? "Branch pushed" : "Branch already up to date",
@@ -814,6 +816,7 @@ export default function GitActionsControl({
             ? `${result.branch} → ${result.upstreamBranch}`
             : result.branch,
         });
+        await queryClient.refetchQueries({ queryKey: gitQueryKeys.status(gitCwd) });
       })
       .catch((error) => {
         handleMutationError("Could not push branch", error);
@@ -823,7 +826,7 @@ export default function GitActionsControl({
   const handlePull = () => {
     void pullMutation
       .mutateAsync()
-      .then((result) => {
+      .then(async (result) => {
         toastManager.add({
           type: result.status === "pulled" ? "success" : "info",
           title:
@@ -832,6 +835,7 @@ export default function GitActionsControl({
             ? `${result.branch} ← ${result.upstreamBranch}`
             : result.branch,
         });
+        await queryClient.refetchQueries({ queryKey: gitQueryKeys.status(gitCwd) });
       })
       .catch((error) => {
         handleMutationError("Could not fetch and pull branch", error);

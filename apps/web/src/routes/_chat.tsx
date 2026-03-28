@@ -18,6 +18,15 @@ import { Sidebar, SidebarProvider } from "~/components/ui/sidebar";
 import { useMobileViewport } from "../mobileViewport";
 
 const PROJECT_TOOLS_SIDEBAR_DEFAULT_WIDTH = "clamp(26rem,42vw,44rem)";
+const PROJECT_TOOLS_SIDEBAR_STYLE = {
+  "--sidebar-width": PROJECT_TOOLS_SIDEBAR_DEFAULT_WIDTH,
+} as React.CSSProperties;
+const MOBILE_NAV_VISIBLE_STYLE = {
+  "--app-mobile-bottom-nav-height": mobileBottomNavHeight(true),
+} as React.CSSProperties;
+const MOBILE_NAV_HIDDEN_STYLE = {
+  "--app-mobile-bottom-nav-height": mobileBottomNavHeight(false),
+} as React.CSSProperties;
 
 function ChatRouteLayout() {
   const navigate = useNavigate();
@@ -123,11 +132,7 @@ function ChatRouteLayout() {
   return (
     <SidebarProvider
       defaultOpen
-      style={
-        {
-          "--app-mobile-bottom-nav-height": mobileBottomNavHeight(showMobileBottomNav),
-        } as React.CSSProperties
-      }
+      style={showMobileBottomNav ? MOBILE_NAV_VISIBLE_STYLE : MOBILE_NAV_HIDDEN_STYLE}
     >
       {mobileViewport.isMobile ? null : (
         <Sidebar
@@ -148,7 +153,7 @@ function ChatRouteLayout() {
             }
           }}
           className="min-h-0 flex-1 bg-transparent"
-          style={{ "--sidebar-width": PROJECT_TOOLS_SIDEBAR_DEFAULT_WIDTH } as React.CSSProperties}
+          style={PROJECT_TOOLS_SIDEBAR_STYLE}
         >
           <div className="relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
             <Outlet />
