@@ -6,7 +6,6 @@ import path from "node:path";
 
 interface CliOptions {
   readonly version: string | null;
-  readonly bump: "patch" | "minor" | "major";
   readonly tag: string;
   readonly access: string;
   readonly dryRun: boolean;
@@ -17,12 +16,6 @@ interface CliOptions {
 
 function fail(message: string): never {
   throw new Error(`[publish-npm] ${message}`);
-}
-
-interface ParsedSemver {
-  readonly major: number;
-  readonly minor: number;
-  readonly patch: number;
 }
 
 function runCommand(command: string, args: ReadonlyArray<string>, cwd: string): void {
@@ -62,7 +55,6 @@ function runJsonCommand(command: string, args: ReadonlyArray<string>, cwd: strin
 
 function parseArgs(argv: ReadonlyArray<string>): CliOptions {
   let version: string | null = null;
-  let bump: CliOptions["bump"] = "patch";
   let tag = "latest";
   let access = "public";
   let dryRun = false;
@@ -77,13 +69,6 @@ function parseArgs(argv: ReadonlyArray<string>): CliOptions {
       case "--version":
         if (!next) fail("Missing value for --version.");
         version = next;
-        index += 1;
-        break;
-      case "--bump":
-        if (next !== "patch" && next !== "minor" && next !== "major") {
-          fail("Expected --bump patch|minor|major.");
-        }
-        bump = next;
         index += 1;
         break;
       case "--tag":
@@ -115,76 +100,7 @@ function parseArgs(argv: ReadonlyArray<string>): CliOptions {
     }
   }
 
-  return {
-    version,
-    bump,
-    tag,
-    access,
-    dryRun,
-    verbose,
-    provenance,
-    otp,
-  };
-}
-
-function parseSemver(version: string): ParsedSemver | null {
-  const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(version.trim());
-  if (!match) {
-    return null;
-  }
-
-  return {
-    major: Number(match[1]),
-    minor: Number(match[2]),
-    patch: Number(match[3]),
-  };
-}
-
-function requireSemver(version: string, label: string): ParsedSemver {
-  const parsed = parseSemver(version);
-  if (!parsed) {
-    fail(`${label} is not a plain semver version: ${version}`);
-  }
-  return parsed;
-}
-
-function compareSemver(left: ParsedSemver, right: ParsedSemver): number {
-  if (left.major !== right.major) {
-    return left.major - right.major;
-  }
-  if (left.minor !== right.minor) {
-    return left.minor - right.minor;
-  }
-  return left.patch - right.patch;
-}
-
-function formatSemver(version: ParsedSemver): string {
-  return `${version.major}.${version.minor}.${version.patch}`;
-}
-
-function bumpVersion(currentVersion: string, bump: CliOptions["bump"]): string {
-  const parsed = requireSemver(currentVersion, "Current version");
-
-  let major = parsed.major;
-  let minor = parsed.minor;
-  let patch = parsed.patch;
-
-  switch (bump) {
-    case "major":
-      major += 1;
-      minor = 0;
-      patch = 0;
-      break;
-    case "minor":
-      minor += 1;
-      patch = 0;
-      break;
-    case "patch":
-      patch += 1;
-      break;
-  }
-
-  return `${major}.${minor}.${patch}`;
+  return { version, tag, access, dryRun, verbose, provenance, otp };
 }
 
 function readPublishedVersions(packageName: string, cwd: string): ReadonlySet<string> {
@@ -198,41 +114,36 @@ function readPublishedVersions(packageName: string, cwd: string): ReadonlySet<st
   fail(`Unexpected npm response while reading versions for ${packageName}.`);
 }
 
-function findHighestPublishedVersion(versions: ReadonlySet<string>): string | null {
-  let highest: ParsedSemver | null = null;
-
-  for (const version of versions) {
-    const parsed = parseSemver(version);
-    if (!parsed) {
-      continue;
-    }
-    if (highest === null || compareSemver(parsed, highest) > 0) {
-      highest = parsed;
-    }
-  }
-
-  return highest ? formatSemver(highest) : null;
+/**
+ * CalVer: YYYY.M.D with a patch suffix for same-day releases.
+ * First release of the day:  2026.3.28
+ * Second release:            2026.3.2801
+ * Third release:             2026.3.2802
+ */
+function calverToday(): { year: number; month: number; day: number } {
+  const now = new Date();
+  return {
+    year: now.getFullYear(),
+    month: now.getMonth() + 1,
+    day: now.getDate(),
+  };
 }
 
-function maxVersion(left: string, right: string): string {
-  return compareSemver(
-    requireSemver(left, "Local version"),
-    requireSemver(right, "Published version"),
-  ) >= 0
-    ? left
-    : right;
-}
-
-function findNextUnpublishedVersion(
-  baseVersion: string,
-  bump: CliOptions["bump"],
-  publishedVersions: ReadonlySet<string>,
-): string {
-  let candidate = bumpVersion(baseVersion, bump);
-  while (publishedVersions.has(candidate)) {
-    candidate = bumpVersion(candidate, bump);
+function nextCalver(publishedVersions: ReadonlySet<string>): string {
+  const { year, month, day } = calverToday();
+  const base = `${year}.${month}.${day}`;
+  if (!publishedVersions.has(base)) {
+    return base;
   }
-  return candidate;
+  // Same-day collision: append incrementing suffix to the patch segment.
+  // e.g. 2026.3.2801, 2026.3.2802, ...
+  for (let seq = 1; seq < 100; seq += 1) {
+    const candidate = `${year}.${month}.${day}${String(seq).padStart(2, "0")}`;
+    if (!publishedVersions.has(candidate)) {
+      return candidate;
+    }
+  }
+  fail("Exhausted same-day CalVer sequence (max 100 releases per day).");
 }
 
 try {
@@ -251,33 +162,15 @@ try {
   }
 
   const publishedVersions = readPublishedVersions(packageJson.name, repoRoot);
-  const highestPublishedVersion = findHighestPublishedVersion(publishedVersions);
-  const versionBase = highestPublishedVersion
-    ? maxVersion(packageJson.version, highestPublishedVersion)
-    : packageJson.version;
-  const nextVersion =
-    options.version ?? findNextUnpublishedVersion(versionBase, options.bump, publishedVersions);
+  const nextVersion = options.version ?? nextCalver(publishedVersions);
 
-  if (options.version && publishedVersions.has(options.version)) {
-    fail(`Version ${options.version} is already published for ${packageJson.name}.`);
+  if (publishedVersions.has(nextVersion)) {
+    fail(`Version ${nextVersion} is already published for ${packageJson.name}.`);
   }
+
+  console.log(`[publish-npm] Publishing ${packageJson.name}@${nextVersion} (CalVer: YYYY.M.D)`);
 
   const nextPackageJsonRaw = `${JSON.stringify({ ...packageJson, version: nextVersion }, null, 2)}\n`;
-
-  if (highestPublishedVersion && versionBase !== packageJson.version) {
-    console.log(
-      `[publish-npm] Registry is ahead of local version ${packageJson.version}; using ${versionBase} as the bump base`,
-    );
-  }
-
-  if (packageJson.version === nextVersion) {
-    console.log(`[publish-npm] Reusing version ${nextVersion}`);
-  } else {
-    console.log(
-      `[publish-npm] Bumping ${packageJson.name} from ${packageJson.version} to ${nextVersion}`,
-    );
-  }
-
   writeFileSync(packageJsonPath, nextPackageJsonRaw);
 
   let published = false;
