@@ -1,10 +1,6 @@
-# TODO
-
-fix sidebar on mobile showing redundant settings button in the bottom and sidebar open/close icon in the top left corner. move add projects button and settings button to the bottom on mobile so it is easier to reach with one hand.
-
-fix source control unresponsivenewss when clicking any button (push,pull,fetch,commit) in the source control tab, sometimes buttons are disabled for no reasons and only disabled after reloading the page. add magic icon that uses the models set in the settings to generate a commit message.
-
-fix mobile keyboard covering shell actions in terminal mobile shell
-fix mobile shell scrolling and copying text from the terminal
-
-fix on mobile sidebar open/close icon displayed on settings page in the top left corner, and mobile bottom tab menu is overlapping with settings page content.
+like on mobile, on desktop switching between thread should       
+switch the context of source control , files and shell. switching  
+from thread in project a  to project b should also switch source   
+control to project b and not keep project b in source control      
+until closing and opening source control again, same for files and 
+ shell.                                                            
