@@ -7,6 +7,7 @@ import { GitCore, type GitCoreShape } from "../Services/GitCore.ts";
 
 const STATUS_UPSTREAM_REFRESH_INTERVAL = Duration.seconds(15);
 const STATUS_UPSTREAM_REFRESH_TIMEOUT = Duration.seconds(5);
+const STATUS_UPSTREAM_REFRESH_FAILURE_TTL = Duration.seconds(30);
 const STATUS_UPSTREAM_REFRESH_CACHE_CAPACITY = 2_048;
 const DEFAULT_BASE_BRANCH_CANDIDATES = ["main", "master"] as const;
 
@@ -490,8 +491,9 @@ const makeGitCore = Effect.gen(function* () {
         });
         return true as const;
       }),
-    // Keep successful refreshes warm; drop failures immediately so next request can retry.
-    timeToLive: (exit) => (Exit.isSuccess(exit) ? STATUS_UPSTREAM_REFRESH_INTERVAL : Duration.zero),
+    // Keep successful refreshes warm; back off on failures to avoid repeated 5s blocking timeouts.
+    timeToLive: (exit) =>
+      Exit.isSuccess(exit) ? STATUS_UPSTREAM_REFRESH_INTERVAL : STATUS_UPSTREAM_REFRESH_FAILURE_TTL,
   });
 
   const refreshStatusUpstreamIfStale = (cwd: string): Effect.Effect<void, GitCommandError> =>
@@ -753,7 +755,12 @@ const makeGitCore = Effect.gen(function* () {
 
   const statusDetails: GitCoreShape["statusDetails"] = (cwd) =>
     Effect.gen(function* () {
-      yield* refreshStatusUpstreamIfStale(cwd).pipe(Effect.ignoreCause({ log: true }));
+      // Fire-and-forget: refresh upstream ref in the background so it doesn't block status reads.
+      // The cache ensures at most one fetch is in-flight per branch at a time.
+      yield* refreshStatusUpstreamIfStale(cwd).pipe(
+        Effect.ignoreCause({ log: true }),
+        Effect.forkDetach,
+      );
 
       const [statusStdout, unstagedNumstatStdout, stagedNumstatStdout] = yield* Effect.all(
         [
