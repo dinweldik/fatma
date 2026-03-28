@@ -10,7 +10,7 @@ import { FetchHttpClient } from "effect/unstable/http";
 import { beforeEach } from "vitest";
 import { NetService } from "@fatma/shared/Net";
 
-import { CliConfig, recordStartupHeartbeat, t3Cli, type CliConfigShape } from "./main";
+import { CliConfig, recordStartupHeartbeat, fatmaCli, type CliConfigShape } from "./main";
 import { ServerConfig, type ServerConfigShape } from "./config";
 import { Open, type OpenShape } from "./open";
 import { ProjectionSnapshotQuery } from "./orchestration/Services/ProjectionSnapshotQuery";
@@ -60,7 +60,7 @@ const runCli = (
   args: ReadonlyArray<string>,
   env: Record<string, string> = { T3CODE_NO_BROWSER: "true" },
 ) => {
-  return Command.runWith(t3Cli, { version: "0.0.0-test" })(args).pipe(
+  return Command.runWith(fatmaCli, { version: "0.0.0-test" })(args).pipe(
     Effect.provide(
       ConfigProvider.layer(
         ConfigProvider.fromEnv({

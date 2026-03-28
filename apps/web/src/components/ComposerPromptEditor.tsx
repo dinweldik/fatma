@@ -907,7 +907,7 @@ function ComposerPromptEditorInner({
   });
   const isApplyingControlledUpdateRef = useRef(false);
   const terminalContextActions = useMemo(
-    () => ({ onRemoveTerminalContext }),
+    () => ({ onRemoveTerminalContext: onRemoveTerminalContext ?? (() => {}) }),
     [onRemoveTerminalContext],
   );
 
@@ -1168,10 +1168,10 @@ export const ComposerPromptEditor = forwardRef<
       <ComposerPromptEditorInner
         value={value}
         cursor={cursor}
-        terminalContexts={terminalContexts}
+        terminalContexts={terminalContexts ?? []}
         disabled={disabled}
         placeholder={placeholder}
-        onRemoveTerminalContext={onRemoveTerminalContext}
+        onRemoveTerminalContext={onRemoveTerminalContext ?? (() => {})}
         onChange={onChange}
         onPaste={onPaste}
         editorRef={ref}

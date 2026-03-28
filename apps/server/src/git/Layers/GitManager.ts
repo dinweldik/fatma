@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { realpathSync } from "node:fs";
 
-import { Effect, FileSystem, Layer, Path } from "effect";
+import { Effect, FileSystem, Layer, Path, Schema } from "effect";
 import {
   resolveAutoFeatureBranchName,
   sanitizeBranchFragment,
@@ -1092,7 +1092,7 @@ export const makeGitManager = Effect.gen(function* () {
       };
     }).pipe(
       Effect.mapError((cause) =>
-        cause instanceof GitManagerError
+        Schema.is(GitManagerError)(cause)
           ? cause
           : new GitManagerError({
               operation: "generateCommitMessage",

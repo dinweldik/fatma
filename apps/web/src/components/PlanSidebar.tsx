@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { cn } from "~/lib/utils";
 import { formatTimestamp } from "../session-logic";
+import { useAppSettings } from "../appSettings";
 import type { ActivePlanState } from "../session-logic";
 import type { LatestProposedPlanState } from "../session-logic";
 import {
@@ -63,6 +64,7 @@ const PlanSidebar = memo(function PlanSidebar({
   workspaceRoot,
   onClose,
 }: PlanSidebarProps) {
+  const { settings } = useAppSettings();
   const [proposedPlanExpanded, setProposedPlanExpanded] = useState(false);
   const [isSavingToWorkspace, setIsSavingToWorkspace] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -143,7 +145,7 @@ const PlanSidebar = memo(function PlanSidebar({
           </Badge>
           {activePlan ? (
             <span className="text-[11px] text-muted-foreground/60">
-              {formatTimestamp(activePlan.createdAt)}
+              {formatTimestamp(activePlan.createdAt, settings.timestampFormat)}
             </span>
           ) : null}
         </div>

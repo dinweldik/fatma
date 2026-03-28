@@ -15,14 +15,14 @@ import { Effect, Layer, FileSystem, Path } from "effect";
 
 import { CheckpointInvariantError } from "../Errors.ts";
 import { GitCommandError } from "../../git/Errors.ts";
-import { GitCore } from "../../git/Services/GitCore.ts";
+import { GitService } from "../../git/Services/GitService.ts";
 import { CheckpointStore, type CheckpointStoreShape } from "../Services/CheckpointStore.ts";
 import { CheckpointRef } from "@fatma/contracts";
 
 const makeCheckpointStore = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
-  const git = yield* GitCore;
+  const git = yield* GitService;
 
   const resolveHeadCommit = (cwd: string): Effect.Effect<string | null, GitCommandError> =>
     git

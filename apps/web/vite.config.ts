@@ -2,7 +2,8 @@ import { readFileSync } from "node:fs";
 import { execSync } from "node:child_process";
 
 import tailwindcss from "@tailwindcss/vite";
-import react from "@vitejs/plugin-react";
+import react, { reactCompilerPreset } from "@vitejs/plugin-react";
+import babelPlugin from "@rolldown/plugin-babel";
 import { tanstackRouter } from "@tanstack/router-plugin/vite";
 import { defineConfig, type Plugin } from "vite";
 const webPackageJson = JSON.parse(
@@ -86,10 +87,9 @@ function emitPwaVersion(): Plugin {
 export default defineConfig({
   plugins: [
     tanstackRouter(),
-    react({
-      babel: {
-        plugins: [["babel-plugin-react-compiler", { target: "19" }]],
-      },
+    react(),
+    babelPlugin({
+      presets: [reactCompilerPreset({ target: "19", compilationMode: "annotation" })],
     }),
     tailwindcss(),
     emitPwaVersion(),

@@ -182,6 +182,7 @@ import {
   resolveAppServiceTier,
   shouldShowFastTierIcon,
   type AppServiceTier,
+  type TimestampFormat,
   useAppSettings,
 } from "../appSettings";
 import {
@@ -205,9 +206,9 @@ import {
   renderProviderTraitsPicker,
 } from "./chat/composerProviderRegistry";
 
-function formatMessageMeta(createdAt: string, duration: string | null): string {
-  if (!duration) return formatTimestamp(createdAt);
-  return `${formatTimestamp(createdAt)} • ${duration}`;
+function formatMessageMeta(createdAt: string, duration: string | null, timestampFormat: TimestampFormat): string {
+  if (!duration) return formatTimestamp(createdAt, timestampFormat);
+  return `${formatTimestamp(createdAt, timestampFormat)} • ${duration}`;
 }
 
 function formatWorkingTimer(startIso: string, endIso: string): string | null {
@@ -2948,7 +2949,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
       workspaceEntriesQuery.isFetching);
 
   const onPromptChange = useCallback(
-    (nextPrompt: string, nextCursor: number, cursorAdjacentToMention: boolean) => {
+    (nextPrompt: string, nextCursor: number, _expandedCursor: number, cursorAdjacentToMention: boolean, _terminalContextIds: string[]) => {
       if (activePendingProgress?.activeQuestion && activePendingUserInput) {
         onChangeActivePendingUserInputCustomAnswer(
           activePendingProgress.activeQuestion.id,
@@ -3126,7 +3127,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
       {/* Error banner */}
       <ProviderHealthBanner status={activeProviderStatus} />
       <ThreadErrorBanner error={activeThread.error} />
-      <PlanModePanel activePlan={visibleActivePlan} />
+      <PlanModePanel activePlan={visibleActivePlan} timestampFormat={settings.timestampFormat} />
 
       {/* Messages */}
       <div
@@ -3169,6 +3170,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
           markdownCwd={gitCwd ?? undefined}
           resolvedTheme={resolvedTheme}
           workspaceRoot={activeProject?.cwd ?? undefined}
+          timestampFormat={settings.timestampFormat}
         />
       </div>
 
@@ -4072,9 +4074,10 @@ const ComposerPendingApprovalActions = memo(function ComposerPendingApprovalActi
 
 interface PlanModePanelProps {
   activePlan: ReturnType<typeof deriveActivePlanState>;
+  timestampFormat: TimestampFormat;
 }
 
-const PlanModePanel = memo(function PlanModePanel({ activePlan }: PlanModePanelProps) {
+const PlanModePanel = memo(function PlanModePanel({ activePlan, timestampFormat }: PlanModePanelProps) {
   if (!activePlan) return null;
 
   return (
@@ -4086,7 +4089,7 @@ const PlanModePanel = memo(function PlanModePanel({ activePlan }: PlanModePanelP
         <div className="flex items-center gap-2">
           <Badge variant="secondary">Plan</Badge>
           <span className="text-xs text-muted-foreground">
-            Updated {formatTimestamp(activePlan.createdAt)}
+            Updated {formatTimestamp(activePlan.createdAt, timestampFormat)}
           </span>
         </div>
         {activePlan.explanation ? (
@@ -4585,6 +4588,7 @@ interface MessagesTimelineProps {
   markdownCwd: string | undefined;
   resolvedTheme: "light" | "dark";
   workspaceRoot: string | undefined;
+  timestampFormat: TimestampFormat;
 }
 
 type TimelineEntry = ReturnType<typeof deriveTimelineEntries>[number];
@@ -4640,6 +4644,7 @@ const MessagesTimeline = memo(function MessagesTimeline({
   markdownCwd,
   resolvedTheme,
   workspaceRoot,
+  timestampFormat,
 }: MessagesTimelineProps) {
   const timelineRootRef = useRef<HTMLDivElement | null>(null);
   const [timelineWidthPx, setTimelineWidthPx] = useState<number | null>(null);
@@ -5024,7 +5029,7 @@ const MessagesTimeline = memo(function MessagesTimeline({
                     )}
                   </div>
                   <p className="text-right text-[10px] text-muted-foreground/30">
-                    {formatTimestamp(row.message.createdAt)}
+                    {formatTimestamp(row.message.createdAt, timestampFormat)}
                   </p>
                 </div>
               </div>
@@ -5132,6 +5137,7 @@ const MessagesTimeline = memo(function MessagesTimeline({
                     row.message.streaming
                       ? formatElapsed(row.message.createdAt, nowIso)
                       : formatElapsed(row.message.createdAt, row.message.completedAt),
+                    timestampFormat,
                   )}
                 </p>
               </div>

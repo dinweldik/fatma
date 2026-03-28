@@ -255,7 +255,7 @@ export function resolveAppModelSelection(
 ): string {
   const customModelsForProvider = Array.isArray(customModels)
     ? customModels
-    : customModels[provider];
+    : (customModels as Record<ProviderKind, readonly string[]>)[provider];
   const options = getAppModelOptions(provider, customModelsForProvider, selectedModel);
   return resolveSelectableModel(provider, selectedModel, options) ?? getDefaultModel(provider);
 }

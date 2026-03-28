@@ -113,7 +113,7 @@ export function cloneComposerImageForRetry(
   try {
     return {
       ...image,
-      previewUrl: URL.createObjectURL(image.file),
+      previewUrl: URL.createObjectURL((image as unknown as { file: Blob }).file),
     };
   } catch {
     return image;

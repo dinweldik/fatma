@@ -24,12 +24,14 @@ async function mountMenu(props?: {
   draftsByThreadId[threadId] = {
     prompt: props?.prompt ?? "",
     images: [],
+    attachmentPayloads: [],
     nonPersistedImageIds: [],
-    persistedAttachments: [],
-    terminalContexts: [],
+    persistedAttachmentMetadata: [],
     provider,
     model: props?.model ?? "claude-opus-4-6",
     modelOptions: props?.modelOptions ?? null,
+    effort: null,
+    codexFastMode: false,
     runtimeMode: null,
     interactionMode: null,
   };

@@ -101,6 +101,7 @@ const makeIsolatedGitCore = (gitService: GitServiceShape) =>
       stageFiles: (input) => core.stageFiles(input),
       unstageFiles: (input) => core.unstageFiles(input),
       prepareCommitContext: (cwd) => core.prepareCommitContext(cwd),
+      readStagedContext: (cwd) => core.readStagedContext(cwd),
       commit: (cwd, subject, body) => core.commit(cwd, subject, body),
       commitStaged: (input) => core.commitStaged(input),
       pushCurrentBranch: (cwd, fallbackBranch) => core.pushCurrentBranch(cwd, fallbackBranch),

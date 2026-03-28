@@ -571,7 +571,9 @@ export class WsTransport {
       if (pending.queued) {
         continue;
       }
-      clearTimeout(pending.timeout);
+      if (pending.timeout !== null) {
+        clearTimeout(pending.timeout);
+      }
       this.pending.delete(id);
       pending.reject(new Error(`WebSocket disconnected during request: ${pending.method}`));
     }

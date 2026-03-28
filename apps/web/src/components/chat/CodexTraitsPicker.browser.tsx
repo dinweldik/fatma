@@ -19,9 +19,9 @@ async function mountPicker(props: {
   draftsByThreadId[threadId] = {
     prompt: "",
     images: [],
+    attachmentPayloads: [],
     nonPersistedImageIds: [],
-    persistedAttachments: [],
-    terminalContexts: [],
+    persistedAttachmentMetadata: [],
     provider: "codex",
     model: null,
     modelOptions: {
@@ -30,6 +30,8 @@ async function mountPicker(props: {
         ...(props.fastModeEnabled ? { fastMode: true } : {}),
       },
     },
+    effort: null,
+    codexFastMode: false,
     runtimeMode: null,
     interactionMode: null,
   };
@@ -125,7 +127,8 @@ describe("CodexTraitsPicker", () => {
       await page.getByRole("button").click();
       await page.getByRole("menuitemradio", { name: "on" }).click();
 
-      expect(useComposerDraftStore.getState().stickyModelOptions).toMatchObject({
+      const draft = useComposerDraftStore.getState().draftsByThreadId[ThreadId.makeUnsafe("thread-codex-traits")];
+      expect(draft?.modelOptions).toMatchObject({
         codex: {
           fastMode: true,
         },

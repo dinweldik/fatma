@@ -101,7 +101,7 @@ export const ChatHeader = memo(function ChatHeader({
             openInCwd={openInCwd}
           />
         )}
-        {activeProjectName && <GitActionsControl gitCwd={gitCwd} activeThreadId={activeThreadId} />}
+        {activeProjectName && <GitActionsControl gitCwd={gitCwd} />}
         <Tooltip>
           <TooltipTrigger
             render={

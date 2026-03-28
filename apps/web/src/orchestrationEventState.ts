@@ -335,6 +335,8 @@ function applySupportedEvent(state: AppState, event: OrchestrationEvent): AppSta
               id: event.payload.proposedPlan.id,
               turnId: event.payload.proposedPlan.turnId,
               planMarkdown: event.payload.proposedPlan.planMarkdown,
+              implementedAt: event.payload.proposedPlan.implementedAt ?? null,
+              implementationThreadId: event.payload.proposedPlan.implementationThreadId ?? null,
               createdAt: event.payload.proposedPlan.createdAt,
               updatedAt: event.payload.proposedPlan.updatedAt,
             },

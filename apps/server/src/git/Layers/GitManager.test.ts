@@ -17,7 +17,9 @@ import {
 } from "../Services/GitHubCli.ts";
 import { type TextGenerationShape, TextGeneration } from "../Services/TextGeneration.ts";
 import { GitCoreLive } from "./GitCore.ts";
+import { GitServiceLive } from "./GitService.ts";
 import { GitCore } from "../Services/GitCore.ts";
+import { GitService } from "../Services/GitService.ts";
 import { makeGitManager } from "./GitManager.ts";
 import { ServerConfig } from "../../config.ts";
 
@@ -107,11 +109,11 @@ function runGit(
 ): Effect.Effect<
   { readonly code: number; readonly stdout: string; readonly stderr: string },
   GitCommandError,
-  GitCore
+  GitService
 > {
   return Effect.gen(function* () {
-    const gitCore = yield* GitCore;
-    return yield* gitCore.execute({
+    const gitService = yield* GitService;
+    return yield* gitService.execute({
       operation: "GitManager.test.runGit",
       cwd,
       args,
@@ -125,7 +127,7 @@ function initRepo(
 ): Effect.Effect<
   void,
   PlatformError.PlatformError | GitCommandError,
-  FileSystem.FileSystem | Scope.Scope | GitCore
+  FileSystem.FileSystem | Scope.Scope | GitService
 > {
   return Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
@@ -141,7 +143,7 @@ function initRepo(
 function createBareRemote(): Effect.Effect<
   string,
   PlatformError.PlatformError | GitCommandError,
-  FileSystem.FileSystem | Scope.Scope | GitCore
+  FileSystem.FileSystem | Scope.Scope | GitService
 > {
   return Effect.gen(function* () {
     const remoteDir = yield* makeTempDir("fatma-git-remote-");
@@ -505,6 +507,7 @@ function makeManager(input?: {
 }
 
 const GitManagerTestLayer = GitCoreLive.pipe(
+  Layer.provideMerge(GitServiceLive),
   Layer.provide(ServerConfig.layerTest(process.cwd(), { prefix: "t3-git-manager-test-" })),
   Layer.provideMerge(NodeServices.layer),
 );
