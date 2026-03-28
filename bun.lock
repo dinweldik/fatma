@@ -43,7 +43,7 @@
     },
     "apps/server": {
       "name": "fatma-app",
-      "version": "1.0.34",
+      "version": "2026.3.28",
       "bin": {
         "fatma-app": "./dist/index.mjs",
       },

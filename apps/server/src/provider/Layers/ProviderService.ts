@@ -23,7 +23,11 @@ import {
 } from "@fatma/contracts";
 import { Effect, Layer, Option, PubSub, Queue, Schema, SchemaIssue, Stream } from "effect";
 
-import { ProviderValidationError } from "../Errors.ts";
+import {
+  ProviderAdapterSessionClosedError,
+  ProviderAdapterSessionNotFoundError,
+  ProviderValidationError,
+} from "../Errors.ts";
 import { ProviderAdapterRegistry } from "../Services/ProviderAdapterRegistry.ts";
 import { ProviderService, type ProviderServiceShape } from "../Services/ProviderService.ts";
 import {
@@ -53,6 +57,20 @@ function toValidationError(
     issue,
     ...(cause !== undefined ? { cause } : {}),
   });
+}
+
+function isRecoverableSessionError(
+  error: unknown,
+): error is ProviderAdapterSessionClosedError | ProviderAdapterSessionNotFoundError {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+
+  const tagged = error as { _tag?: unknown };
+  return (
+    tagged._tag === "ProviderAdapterSessionClosedError" ||
+    tagged._tag === "ProviderAdapterSessionNotFoundError"
+  );
 }
 
 const decodeInputOrValidationError = <S extends Schema.Top>(input: {
@@ -208,13 +226,20 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
     const recoverSessionForThread = (input: {
       readonly binding: ProviderRuntimeBinding;
       readonly operation: string;
+      readonly forceRestart?: boolean;
     }) =>
       Effect.gen(function* () {
         const adapter = yield* registry.getByProvider(input.binding.provider);
         const hasResumeCursor =
           input.binding.resumeCursor !== null && input.binding.resumeCursor !== undefined;
         const hasActiveSession = yield* adapter.hasSession(input.binding.threadId);
-        if (hasActiveSession) {
+        if (hasActiveSession && input.forceRestart === true) {
+          yield* adapter
+            .stopSession(input.binding.threadId)
+            .pipe(Effect.catchIf(isRecoverableSessionError, () => Effect.void));
+        }
+
+        if (hasActiveSession && input.forceRestart !== true) {
           const activeSessions = yield* adapter.listSessions();
           const existing = activeSessions.find(
             (session) => session.threadId === input.binding.threadId,
@@ -365,7 +390,27 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
           operation: "ProviderService.sendTurn",
           allowRecovery: true,
         });
-        const turn = yield* routed.adapter.sendTurn(input);
+        const turn = yield* routed.adapter.sendTurn(input).pipe(
+          Effect.catchIf(isRecoverableSessionError, () =>
+            Effect.gen(function* () {
+              const bindingOption = yield* directory.getBinding(input.threadId);
+              const binding = Option.getOrUndefined(bindingOption);
+              if (!binding) {
+                return yield* toValidationError(
+                  "ProviderService.sendTurn",
+                  `Cannot recover thread '${input.threadId}' because no persisted provider binding exists.`,
+                );
+              }
+
+              const recovered = yield* recoverSessionForThread({
+                binding,
+                operation: "ProviderService.sendTurn",
+                forceRestart: true,
+              });
+              return yield* recovered.adapter.sendTurn(input);
+            }),
+          ),
+        );
         yield* directory.upsert({
           threadId: input.threadId,
           provider: routed.adapter.provider,

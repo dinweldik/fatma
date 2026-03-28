@@ -24,6 +24,7 @@ import { Effect, Fiber, Layer, Option, PubSub, Ref, Stream } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import {
+  ProviderAdapterSessionClosedError,
   ProviderAdapterSessionNotFoundError,
   ProviderUnsupportedError,
   ProviderValidationError,
@@ -674,6 +675,57 @@ routing.layer("ProviderServiceLive routing", (it) => {
       }
       assert.equal(routing.claude.sendTurn.mock.calls.length, 1);
     }),
+  );
+
+  it.effect(
+    "restarts stale active claudeAgent sessions when turn start reports a closed thread",
+    () =>
+      Effect.gen(function* () {
+        const provider = yield* ProviderService;
+
+        const initial = yield* provider.startSession(asThreadId("thread-claude-closed-turn"), {
+          provider: "claudeAgent",
+          threadId: asThreadId("thread-claude-closed-turn"),
+          cwd: "/tmp/project-claude-closed-turn",
+          runtimeMode: "full-access",
+        });
+
+        routing.claude.startSession.mockClear();
+        routing.claude.stopSession.mockClear();
+        routing.claude.sendTurn.mockClear();
+        routing.claude.sendTurn.mockImplementationOnce((input: ProviderSendTurnInput) =>
+          Effect.fail(
+            new ProviderAdapterSessionClosedError({
+              provider: "claudeAgent",
+              threadId: input.threadId,
+            }),
+          ),
+        );
+
+        yield* provider.sendTurn({
+          threadId: initial.threadId,
+          input: "retry on closed thread",
+          attachments: [],
+        });
+
+        assert.equal(routing.claude.stopSession.mock.calls.length, 1);
+        assert.equal(routing.claude.startSession.mock.calls.length, 1);
+        const resumedStartInput = routing.claude.startSession.mock.calls[0]?.[0];
+        assert.equal(typeof resumedStartInput === "object" && resumedStartInput !== null, true);
+        if (resumedStartInput && typeof resumedStartInput === "object") {
+          const startPayload = resumedStartInput as {
+            provider?: string;
+            cwd?: string;
+            resumeCursor?: unknown;
+            threadId?: string;
+          };
+          assert.equal(startPayload.provider, "claudeAgent");
+          assert.equal(startPayload.cwd, "/tmp/project-claude-closed-turn");
+          assert.deepEqual(startPayload.resumeCursor, initial.resumeCursor);
+          assert.equal(startPayload.threadId, initial.threadId);
+        }
+        assert.equal(routing.claude.sendTurn.mock.calls.length, 2);
+      }),
   );
 
   it.effect("lists no sessions after adapter runtime clears", () =>
