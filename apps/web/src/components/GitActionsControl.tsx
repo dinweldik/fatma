@@ -9,7 +9,6 @@ import type {
 import {
   CheckIcon,
   ChevronDownIcon,
-  FileIcon,
   FolderIcon,
   LoaderIcon,
   SparklesIcon,
@@ -69,14 +68,6 @@ type ChangeScope = Extract<GitFileDiffScope, "staged" | "unstaged">;
 type SelectedFileTarget = { path: string; scope: ChangeScope };
 type GitChangedFile = GitStatusResult["workingTree"]["files"][number];
 const EMPTY_GIT_FILES: readonly GitChangedFile[] = [];
-
-function dirnameOfPath(pathValue: string): string | null {
-  const lastSlashIndex = Math.max(pathValue.lastIndexOf("/"), pathValue.lastIndexOf("\\"));
-  if (lastSlashIndex <= 0) {
-    return null;
-  }
-  return pathValue.slice(0, lastSlashIndex);
-}
 
 function resolveRepositoryLabel(gitCwd: string, projectName?: string): string {
   if (projectName && projectName.trim().length > 0) {
@@ -191,137 +182,106 @@ function ChangeSection({
   isMobileLayout: boolean;
 }) {
   return (
-    <section className="space-y-2">
-      <div className="flex items-center justify-between gap-3">
+    <section className="space-y-1">
+      <div className="flex items-center justify-between gap-2 px-2 py-1">
         <div className="flex items-center gap-2">
-          <p className="text-[11px] font-semibold tracking-[0.16em] text-muted-foreground uppercase">
+          <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">
             {title}
-          </p>
-          <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+          </span>
+          <span className="font-mono text-[10px] tabular-nums text-muted-foreground/50">
             {files.length}
           </span>
+          {(insertions > 0 || deletions > 0) && (
+            <span className="font-mono text-[10px] tabular-nums">
+              <span className="text-emerald-600 dark:text-emerald-300/90">+{insertions}</span>
+              <span className="mx-0.5 text-muted-foreground/40">/</span>
+              <span className="text-red-600 dark:text-red-300/90">-{deletions}</span>
+            </span>
+          )}
         </div>
-        <div className="flex items-center gap-2">
-          <Button
-            size="xs"
-            variant="ghost"
-            disabled={files.length === 0 || actionPending}
-            onClick={onActionAll}
-          >
-            {allActionLabel}
-          </Button>
-          <span className="font-mono text-[11px] text-emerald-600 dark:text-emerald-300/90">
-            +{insertions}
-          </span>
-          <span className="font-mono text-[11px] text-red-600 dark:text-red-300/90">
-            -{deletions}
-          </span>
-        </div>
+        <Button
+          size="xs"
+          variant="ghost"
+          className="h-6 px-1.5 text-[10px] text-muted-foreground/60 hover:text-foreground"
+          disabled={files.length === 0 || actionPending}
+          onClick={onActionAll}
+        >
+          {allActionLabel}
+        </Button>
       </div>
 
       {files.length === 0 ? (
-        <div className="rounded-xl border border-border/70 bg-background/70 px-4 py-5 text-sm text-muted-foreground">
-          {emptyLabel}
-        </div>
+        <p className="px-2 py-3 text-[11px] text-muted-foreground/50">{emptyLabel}</p>
       ) : (
-        <div className="overflow-hidden rounded-xl border border-border/70 bg-background/70">
-          <div className="max-h-64 overflow-y-auto p-1">
-            {files.map((file) => {
-              const selected = selectedTarget?.scope === scope && selectedTarget.path === file.path;
-              const iconUrl = getVscodeIconUrlForEntry(file.path, "file", resolvedTheme);
-              const directory = dirnameOfPath(file.path);
+        <div className="max-h-64 overflow-y-auto">
+          {files.map((file) => {
+            const selected = selectedTarget?.scope === scope && selectedTarget.path === file.path;
+            const iconUrl = getVscodeIconUrlForEntry(file.path, "file", resolvedTheme);
 
-              return (
-                <div
-                  key={`${scope}:${file.path}`}
-                  className={cn(
-                    "flex items-center gap-2 rounded-lg pr-2 transition-colors",
-                    selected ? "bg-accent text-accent-foreground" : "hover:bg-accent/50",
-                  )}
+            return (
+              <div
+                key={`${scope}:${file.path}`}
+                className={cn(
+                  "group flex items-center gap-1 rounded-lg pr-1 transition-colors",
+                  selected
+                    ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                    : "hover:bg-sidebar-accent/50",
+                )}
+              >
+                <button
+                  type="button"
+                  className="flex min-w-0 flex-1 items-center gap-2 px-2 py-1.5 text-left"
+                  onClick={() => onSelectFile({ path: file.path, scope })}
                 >
-                  <button
-                    type="button"
-                    className="flex min-w-0 flex-1 items-center justify-between gap-3 px-3 py-2.5 text-left"
-                    onClick={() => onSelectFile({ path: file.path, scope })}
+                  <img src={iconUrl} alt="" className="size-3.5 shrink-0" loading="lazy" />
+                  <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-muted-foreground/80 group-hover:text-foreground/90">
+                    {file.path}
+                  </span>
+                  <span className="ml-auto shrink-0 font-mono text-[10px] tabular-nums text-muted-foreground/50">
+                    <span className="text-emerald-600 dark:text-emerald-300/90">+{file.insertions}</span>
+                    <span className="mx-0.5 text-muted-foreground/30">/</span>
+                    <span className="text-red-600 dark:text-red-300/90">-{file.deletions}</span>
+                  </span>
+                  <span
+                    className={cn(
+                      "w-3.5 shrink-0 text-center font-mono text-[10px] font-semibold",
+                      statusClassName(file.status),
+                    )}
                   >
-                    <div className="flex min-w-0 items-center gap-3">
-                      <img src={iconUrl} alt="" className="size-4 shrink-0" loading="lazy" />
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-medium">{basenameOfPath(file.path)}</p>
-                        <p className="truncate text-xs text-muted-foreground">
-                          {directory ?? statusLabel(file.status)}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="flex shrink-0 items-center gap-3">
-                      <span
-                        className={cn(
-                          "w-4 text-center font-semibold text-xs",
-                          statusClassName(file.status),
-                        )}
-                      >
-                        {statusLetter(file.status)}
-                      </span>
-                      <span className="min-w-18 text-right font-mono text-[11px] text-muted-foreground">
-                        <span className="text-emerald-600 dark:text-emerald-300/90">
-                          +{file.insertions}
-                        </span>
-                        <span className="mx-1 text-muted-foreground/60">/</span>
-                        <span className="text-red-600 dark:text-red-300/90">-{file.deletions}</span>
-                      </span>
-                    </div>
-                  </button>
-                  <Button
-                    size="xs"
-                    variant={selected ? "secondary" : "ghost"}
-                    disabled={actionPending}
-                    onClick={() => onActionFile(file.path)}
-                  >
-                    {actionLabel}
-                  </Button>
-                </div>
-              );
-            })}
-          </div>
+                    {statusLetter(file.status)}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  className="shrink-0 rounded-md px-1 py-0.5 text-[10px] text-muted-foreground/50 opacity-0 transition-opacity hover:text-foreground group-hover:opacity-100"
+                  disabled={actionPending}
+                  onClick={() => onActionFile(file.path)}
+                >
+                  {actionLabel}
+                </button>
+              </div>
+            );
+          })}
         </div>
       )}
       {selectedTarget?.scope === scope && selectedFile ? (
-        <section className={cn("space-y-2", !isMobileLayout && "min-h-0 flex-1")}>
-          <div className="flex items-center justify-between gap-3">
-            <p className="text-[11px] font-semibold tracking-[0.16em] text-muted-foreground uppercase">
-              {scopeLabel(selectedTarget?.scope ?? "unstaged")} Diff
-            </p>
+        <section className={cn("mt-1 space-y-1", !isMobileLayout && "min-h-0 flex-1")}>
+          <div className="flex items-center justify-between gap-2 px-2">
+            <span className="truncate font-mono text-[11px] text-muted-foreground/70">
+              {selectedFile.path}
+              <span className={cn("ml-1.5 text-[10px]", statusClassName(selectedFile.status))}>
+                {statusLabel(selectedFile.status)}
+              </span>
+            </span>
             <button
               type="button"
-              className="text-xs text-muted-foreground transition-colors hover:text-foreground"
+              className="shrink-0 text-[10px] text-muted-foreground/50 transition-colors hover:text-foreground"
               onClick={() => onSelectFile(selectedTarget!)}
             >
-              Collapse
+              Close
             </button>
           </div>
-          <div className="min-h-0 overflow-hidden rounded-xl border border-border/70 bg-card">
-            <div className="flex items-center justify-between gap-3 border-b border-border/70 px-4 py-3">
-              <div className="flex min-w-0 items-center gap-3">
-                <div className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-border/70 bg-background">
-                  <FileIcon className="size-4 text-foreground/80" />
-                </div>
-                <div className="min-w-0">
-                  <p className="truncate font-medium text-foreground">{selectedFile.path}</p>
-                  <p className={cn("text-xs", statusClassName(selectedFile.status))}>
-                    {scopeLabel(selectedTarget?.scope ?? "unstaged")} ·{" "}
-                    {statusLabel(selectedFile.status)}
-                  </p>
-                </div>
-              </div>
-              <div className="shrink-0 text-right font-mono text-sm">
-                <span className="text-red-600 dark:text-red-300/90">-{selectedFile.deletions}</span>
-                <span className="mx-2 text-muted-foreground/60" />
-                <span className="text-emerald-600 dark:text-emerald-300/90">
-                  +{selectedFile.insertions}
-                </span>
-              </div>
-            </div>
-
+          <div className="min-h-0 overflow-hidden rounded-lg border border-sidebar-border">
             <div
               className={cn(
                 "overflow-x-auto",
@@ -329,12 +289,12 @@ function ChangeSection({
               )}
             >
               {selectedFileDiffError ? (
-                <div className="px-4 py-5 text-sm text-destructive">{selectedFileDiffError}</div>
+                <div className="px-3 py-4 text-[11px] text-destructive">{selectedFileDiffError}</div>
               ) : !selectedRenderablePatch ? (
-                <div className="px-4 py-5 text-sm text-muted-foreground">
+                <div className="px-3 py-4 text-[11px] text-muted-foreground/60">
                   {selectedFileDiffQuery.isLoading || selectedFileDiffQuery.isFetching
-                    ? "Loading file diff..."
-                    : "No diff available for this file."}
+                    ? "Loading diff..."
+                    : "No diff available."}
                 </div>
               ) : selectedRenderablePatch.kind === "files" ? (
                 <div className="[&_[data-file-info]]:hidden">
@@ -354,11 +314,11 @@ function ChangeSection({
                   ))}
                 </div>
               ) : (
-                <div className="space-y-2 p-4">
-                  <p className="text-[11px] text-muted-foreground/75">
+                <div className="space-y-1.5 p-3">
+                  <p className="text-[10px] text-muted-foreground/60">
                     {selectedRenderablePatch.reason}
                   </p>
-                  <pre className="overflow-auto rounded-lg border border-border/70 bg-background/70 p-3 font-mono text-[11px] leading-relaxed text-muted-foreground/90">
+                  <pre className="overflow-auto rounded-md bg-background/50 p-2 font-mono text-[10px] leading-relaxed text-muted-foreground/80">
                     {selectedRenderablePatch.text}
                   </pre>
                 </div>
@@ -499,153 +459,119 @@ function SourceControlPanel({
   return (
     <div
       className={cn(
-        "flex min-h-0 min-w-0 w-full flex-col gap-4",
+        "flex min-h-0 min-w-0 w-full flex-col gap-3",
         !isMobileLayout && "max-h-[min(82vh,56rem)]",
       )}
     >
       {!isMobileLayout && (
-        <div className="space-y-1">
-          <p className="text-[11px] font-semibold tracking-[0.16em] text-muted-foreground uppercase">
-            Source Control
-          </p>
-          <p className="text-sm text-muted-foreground">
-            Stage files, commit changes, fetch and pull the current branch, and inspect diffs
-            inline.
-          </p>
-        </div>
+        <span className="px-2 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">
+          Source Control
+        </span>
       )}
 
       {isLoadingRepoState ? (
-        <div className="rounded-xl border border-border/70 bg-background/70 px-4 py-5 text-sm text-muted-foreground">
+        <p className="px-2 py-3 text-[11px] text-muted-foreground/50">
           Loading repository status...
-        </div>
+        </p>
       ) : isRepo === false ? (
-        <div className="rounded-xl border border-border/70 bg-background/70 p-4">
-          <div className="space-y-2">
-            <p className="font-medium text-foreground">This project is not a git repository.</p>
-            <p className="text-sm text-muted-foreground">
-              Initialize git here to start tracking changes from the source control panel.
-            </p>
-            <Button size="sm" variant="outline" disabled={initPending} onClick={onInitializeGit}>
-              {initPending ? "Initializing..." : "Initialize Git"}
-            </Button>
-          </div>
+        <div className="space-y-2 px-2 py-3">
+          <p className="text-xs font-medium text-foreground/90">Not a git repository</p>
+          <p className="text-[11px] text-muted-foreground/60">
+            Initialize git to start tracking changes.
+          </p>
+          <Button size="sm" variant="outline" disabled={initPending} onClick={onInitializeGit}>
+            {initPending ? "Initializing..." : "Initialize Git"}
+          </Button>
         </div>
       ) : (
         <>
-          <section className="space-y-2">
-            <div className="flex items-center justify-between gap-3">
-              <p className="text-[11px] font-semibold tracking-[0.16em] text-muted-foreground uppercase">
-                Repositories
-              </p>
-              {gitStatus ? (
-                <div className="flex items-center gap-2 font-mono text-[11px]">
-                  <BranchDelta
-                    aheadCount={gitStatus.aheadCount}
-                    behindCount={gitStatus.behindCount}
-                  />
-                </div>
-              ) : null}
-            </div>
-            <div className="rounded-xl border border-border/70 bg-background/70 p-3">
-              <div className="flex items-start justify-between gap-3">
-                <div className="flex min-w-0 items-start gap-3">
-                  <div className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-border/70 bg-card">
-                    <FolderIcon className="size-4 text-foreground/80" />
-                  </div>
-                  <div className="min-w-0 space-y-0.5">
-                    <p className="truncate font-medium text-foreground">{repositoryLabel}</p>
-                    <p className="truncate text-sm text-muted-foreground">
-                      {gitStatus?.branch ?? "Detached HEAD"}
-                      {gitStatus?.hasWorkingTreeChanges ? " *" : ""}
-                    </p>
-                    <p className="truncate font-mono text-[11px] text-muted-foreground/80">
-                      {remoteUrl}
-                    </p>
-                  </div>
-                </div>
+          <div className="flex items-center gap-2 rounded-lg px-2 py-1.5">
+            <FolderIcon className="size-3.5 shrink-0 text-muted-foreground/70" />
+            <div className="min-w-0 flex-1">
+              <span className="block truncate text-xs font-medium text-foreground/90">
+                {repositoryLabel}
+              </span>
+              <span className="block truncate text-[10px] text-muted-foreground/50">
+                {gitStatus?.branch ?? "Detached HEAD"}
+                {gitStatus?.hasWorkingTreeChanges ? " *" : ""}
                 {gitStatus?.pr ? (
-                  <span className="rounded-full border border-border/70 bg-card px-2 py-0.5 text-[11px] text-muted-foreground">
+                  <span className="ml-1.5 text-muted-foreground/40">
                     PR {gitStatus.pr.state}
                   </span>
                 ) : null}
-              </div>
-            </div>
-          </section>
-
-          <section className="space-y-2">
-            <div className="flex items-center justify-between gap-3">
-              <p className="text-[11px] font-semibold tracking-[0.16em] text-muted-foreground uppercase">
-                Commit
-              </p>
-              <span className="font-mono text-[11px] text-muted-foreground/70">
-                {commitShortcutLabel()}
               </span>
             </div>
-            <div className="space-y-3 rounded-xl border border-border/70 bg-background/70 p-3">
-              <div className="relative">
-                <Input
-                  aria-label="Commit message"
-                  autoComplete="off"
-                  className="pr-9"
-                  placeholder={`Message (${commitShortcutLabel()} to commit on "${repositoryLabel}")`}
-                  value={commitMessage}
-                  onChange={(event) => onCommitMessageChange(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (
-                      (event.metaKey || event.ctrlKey) &&
-                      event.key === "Enter" &&
-                      !commitDisabled
-                    ) {
-                      event.preventDefault();
-                      onCommit();
-                    }
-                  }}
+            {gitStatus ? (
+              <span className="shrink-0 font-mono text-[10px] tabular-nums">
+                <BranchDelta
+                  aheadCount={gitStatus.aheadCount}
+                  behindCount={gitStatus.behindCount}
                 />
-                <button
-                  type="button"
-                  aria-label="Generate commit message"
-                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-0.5 text-muted-foreground transition-colors hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
-                  disabled={
-                    generateCommitMessagePending || stagedFiles.length === 0 || commitPending
+              </span>
+            ) : null}
+          </div>
+
+          <section className="space-y-1.5 px-1">
+            <div className="relative">
+              <Input
+                aria-label="Commit message"
+                autoComplete="off"
+                className="h-8 pr-8 text-xs"
+                placeholder={`Commit message (${commitShortcutLabel()})`}
+                value={commitMessage}
+                onChange={(event) => onCommitMessageChange(event.target.value)}
+                onKeyDown={(event) => {
+                  if (
+                    (event.metaKey || event.ctrlKey) &&
+                    event.key === "Enter" &&
+                    !commitDisabled
+                  ) {
+                    event.preventDefault();
+                    onCommit();
                   }
-                  onClick={onGenerateCommitMessage}
-                >
-                  {generateCommitMessagePending ? (
-                    <LoaderIcon className="size-4 animate-spin" />
-                  ) : (
-                    <SparklesIcon className="size-4" />
-                  )}
-                </button>
-              </div>
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_auto_auto]">
-                <Button disabled={commitDisabled} onClick={onCommit}>
-                  <CheckIcon className="size-4" />
-                  {commitPending ? "Committing..." : "Commit"}
-                </Button>
-                <Button variant="outline" disabled={pullDisabled} onClick={onPull}>
-                  {pullPending ? "Fetching & pulling..." : "Fetch & pull"}
-                </Button>
-                <Button variant="outline" disabled={pushDisabled} onClick={onPush}>
-                  {pushPending
-                    ? "Pushing..."
-                    : gitStatus?.aheadCount && gitStatus.aheadCount > 0
-                      ? `Push +${gitStatus.aheadCount}`
-                      : "Push"}
-                </Button>
-              </div>
-              {anyMutationStuck && (
-                <div className="text-center">
-                  <button
-                    type="button"
-                    className="text-xs text-muted-foreground transition-colors hover:text-foreground"
-                    onClick={onResetMutations}
-                  >
-                    Operation taking too long? Click to reset
-                  </button>
-                </div>
-              )}
+                }}
+              />
+              <button
+                type="button"
+                aria-label="Generate commit message"
+                className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded-md p-0.5 text-muted-foreground/50 transition-colors hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
+                disabled={
+                  generateCommitMessagePending || stagedFiles.length === 0 || commitPending
+                }
+                onClick={onGenerateCommitMessage}
+              >
+                {generateCommitMessagePending ? (
+                  <LoaderIcon className="size-3.5 animate-spin" />
+                ) : (
+                  <SparklesIcon className="size-3.5" />
+                )}
+              </button>
             </div>
+            <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] gap-1.5">
+              <Button size="sm" disabled={commitDisabled} onClick={onCommit}>
+                <CheckIcon className="size-3.5" />
+                {commitPending ? "Committing..." : "Commit"}
+              </Button>
+              <Button size="sm" variant="outline" disabled={pullDisabled} onClick={onPull}>
+                {pullPending ? "Pulling..." : "Pull"}
+              </Button>
+              <Button size="sm" variant="outline" disabled={pushDisabled} onClick={onPush}>
+                {pushPending
+                  ? "Pushing..."
+                  : gitStatus?.aheadCount && gitStatus.aheadCount > 0
+                    ? `Push +${gitStatus.aheadCount}`
+                    : "Push"}
+              </Button>
+            </div>
+            {anyMutationStuck && (
+              <button
+                type="button"
+                className="w-full text-center text-[10px] text-muted-foreground/50 transition-colors hover:text-foreground"
+                onClick={onResetMutations}
+              >
+                Taking too long? Reset
+              </button>
+            )}
           </section>
 
           <ChangeSection
@@ -708,9 +634,9 @@ function SourceControlPanel({
         </>
       )}
       {(branchListError || gitStatusError) && (
-        <div className="rounded-xl border border-destructive/30 bg-destructive/6 px-4 py-3 text-sm text-destructive">
+        <p className="px-2 text-[11px] text-destructive">
           {branchListError ?? gitStatusError}
-        </div>
+        </p>
       )}
     </div>
   );
@@ -1021,7 +947,7 @@ export default function GitActionsControl({
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger render={trigger} />
-      <PopoverPopup align="end" side="bottom" className="w-[min(92vw,48rem)]">
+      <PopoverPopup align="end" side="bottom" className="w-[min(92vw,36rem)]">
         {panel}
       </PopoverPopup>
     </Popover>
