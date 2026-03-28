@@ -1606,34 +1606,39 @@ export default function Sidebar({
                           >
                             {project.name}
                           </span>
-                          <span className={cn(
-                            "block truncate text-muted-foreground/65",
-                            isMobile ? "text-[11px]" : "text-[10px]",
-                          )}>
-                              {projectThreads.length} thread
-                              {projectThreads.length === 1 ? "" : "s"} •{" "}
-                              {projectShells.shells.length} shell
-                              {projectShells.shells.length === 1 ? "" : "s"}
-                              {(() => {
-                                const projectGitStatus = gitStatusByProjectId.get(project.id);
-                                if (!projectGitStatus?.hasWorkingTreeChanges) return null;
-                                const ins = projectGitStatus.workingTree.insertions;
-                                const del = projectGitStatus.workingTree.deletions;
-                                if (ins === 0 && del === 0) return null;
-                                return (
-                                  <>
-                                    {" "}•{" "}
-                                    <span className="font-mono">
-                                      <span className="text-emerald-600 dark:text-emerald-300/90">
-                                        +{ins}
-                                      </span>
-                                      <span className="mx-0.5 text-muted-foreground/40">/</span>
-                                      <span className="text-red-600 dark:text-red-300/90">-{del}</span>
+                          <span
+                            className={cn(
+                              "block truncate text-muted-foreground/65",
+                              isMobile ? "text-[11px]" : "text-[10px]",
+                            )}
+                          >
+                            {projectThreads.length} thread
+                            {projectThreads.length === 1 ? "" : "s"} • {projectShells.shells.length}{" "}
+                            shell
+                            {projectShells.shells.length === 1 ? "" : "s"}
+                            {(() => {
+                              const projectGitStatus = gitStatusByProjectId.get(project.id);
+                              if (!projectGitStatus?.hasWorkingTreeChanges) return null;
+                              const ins = projectGitStatus.workingTree.insertions;
+                              const del = projectGitStatus.workingTree.deletions;
+                              if (ins === 0 && del === 0) return null;
+                              return (
+                                <>
+                                  {" "}
+                                  •{" "}
+                                  <span className="font-mono">
+                                    <span className="text-emerald-600 dark:text-emerald-300/90">
+                                      +{ins}
                                     </span>
-                                  </>
-                                );
-                              })()}
-                            </span>
+                                    <span className="mx-0.5 text-muted-foreground/40">/</span>
+                                    <span className="text-red-600 dark:text-red-300/90">
+                                      -{del}
+                                    </span>
+                                  </span>
+                                </>
+                              );
+                            })()}
+                          </span>
                         </div>
                       </CollapsibleTrigger>
                       <Tooltip>

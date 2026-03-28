@@ -6,13 +6,7 @@ import type {
   GitReadWorkingTreeFileDiffResult,
   GitStatusResult,
 } from "@fatma/contracts";
-import {
-  CheckIcon,
-  ChevronDownIcon,
-  FolderIcon,
-  LoaderIcon,
-  SparklesIcon,
-} from "lucide-react";
+import { CheckIcon, ChevronDownIcon, FolderIcon, LoaderIcon, SparklesIcon } from "lucide-react";
 import {
   type ComponentProps,
   type ReactNode,
@@ -234,7 +228,9 @@ function ChangeSection({
                     {file.path}
                   </span>
                   <span className="ml-auto shrink-0 font-mono text-[10px] tabular-nums text-muted-foreground/50">
-                    <span className="text-emerald-600 dark:text-emerald-300/90">+{file.insertions}</span>
+                    <span className="text-emerald-600 dark:text-emerald-300/90">
+                      +{file.insertions}
+                    </span>
                     <span className="mx-0.5 text-muted-foreground/30">/</span>
                     <span className="text-red-600 dark:text-red-300/90">-{file.deletions}</span>
                   </span>
@@ -285,7 +281,9 @@ function ChangeSection({
               )}
             >
               {selectedFileDiffError ? (
-                <div className="px-3 py-4 text-[11px] text-destructive">{selectedFileDiffError}</div>
+                <div className="px-3 py-4 text-[11px] text-destructive">
+                  {selectedFileDiffError}
+                </div>
               ) : !selectedRenderablePatch ? (
                 <div className="px-3 py-4 text-[11px] text-muted-foreground/60">
                   {selectedFileDiffQuery.isLoading || selectedFileDiffQuery.isFetching
@@ -488,9 +486,7 @@ function SourceControlPanel({
                 {gitStatus?.branch ?? "Detached HEAD"}
                 {gitStatus?.hasWorkingTreeChanges ? " *" : ""}
                 {gitStatus?.pr ? (
-                  <span className="ml-1.5 text-muted-foreground/40">
-                    PR {gitStatus.pr.state}
-                  </span>
+                  <span className="ml-1.5 text-muted-foreground/40">PR {gitStatus.pr.state}</span>
                 ) : null}
               </span>
             </div>
@@ -528,9 +524,7 @@ function SourceControlPanel({
                 type="button"
                 aria-label="Generate commit message"
                 className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded-md p-0.5 text-muted-foreground/50 transition-colors hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
-                disabled={
-                  generateCommitMessagePending || stagedFiles.length === 0 || commitPending
-                }
+                disabled={generateCommitMessagePending || stagedFiles.length === 0 || commitPending}
                 onClick={onGenerateCommitMessage}
               >
                 {generateCommitMessagePending ? (
@@ -627,9 +621,7 @@ function SourceControlPanel({
         </>
       )}
       {(branchListError || gitStatusError) && (
-        <p className="px-2 text-[11px] text-destructive">
-          {branchListError ?? gitStatusError}
-        </p>
+        <p className="px-2 text-[11px] text-destructive">{branchListError ?? gitStatusError}</p>
       )}
     </div>
   );

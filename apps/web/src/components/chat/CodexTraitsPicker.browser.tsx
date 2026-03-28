@@ -127,7 +127,10 @@ describe("CodexTraitsPicker", () => {
       await page.getByRole("button").click();
       await page.getByRole("menuitemradio", { name: "on" }).click();
 
-      const draft = useComposerDraftStore.getState().draftsByThreadId[ThreadId.makeUnsafe("thread-codex-traits")];
+      const draft =
+        useComposerDraftStore.getState().draftsByThreadId[
+          ThreadId.makeUnsafe("thread-codex-traits")
+        ];
       expect(draft?.modelOptions).toMatchObject({
         codex: {
           fastMode: true,

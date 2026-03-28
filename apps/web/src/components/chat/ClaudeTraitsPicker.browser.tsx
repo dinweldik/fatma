@@ -187,7 +187,10 @@ describe("ClaudeTraitsPicker", () => {
       await page.getByRole("button").click();
       await page.getByRole("menuitemradio", { name: "Max" }).click();
 
-      const draft = useComposerDraftStore.getState().draftsByThreadId[ThreadId.makeUnsafe("thread-claude-traits")];
+      const draft =
+        useComposerDraftStore.getState().draftsByThreadId[
+          ThreadId.makeUnsafe("thread-claude-traits")
+        ];
       expect(draft?.modelOptions).toMatchObject({
         claudeAgent: {
           effort: "max",

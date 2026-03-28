@@ -206,7 +206,11 @@ import {
   renderProviderTraitsPicker,
 } from "./chat/composerProviderRegistry";
 
-function formatMessageMeta(createdAt: string, duration: string | null, timestampFormat: TimestampFormat): string {
+function formatMessageMeta(
+  createdAt: string,
+  duration: string | null,
+  timestampFormat: TimestampFormat,
+): string {
   if (!duration) return formatTimestamp(createdAt, timestampFormat);
   return `${formatTimestamp(createdAt, timestampFormat)} • ${duration}`;
 }
@@ -2949,7 +2953,13 @@ export default function ChatView({ threadId }: ChatViewProps) {
       workspaceEntriesQuery.isFetching);
 
   const onPromptChange = useCallback(
-    (nextPrompt: string, nextCursor: number, _expandedCursor: number, cursorAdjacentToMention: boolean, _terminalContextIds: string[]) => {
+    (
+      nextPrompt: string,
+      nextCursor: number,
+      _expandedCursor: number,
+      cursorAdjacentToMention: boolean,
+      _terminalContextIds: string[],
+    ) => {
       if (activePendingProgress?.activeQuestion && activePendingUserInput) {
         onChangeActivePendingUserInputCustomAnswer(
           activePendingProgress.activeQuestion.id,
@@ -4077,7 +4087,10 @@ interface PlanModePanelProps {
   timestampFormat: TimestampFormat;
 }
 
-const PlanModePanel = memo(function PlanModePanel({ activePlan, timestampFormat }: PlanModePanelProps) {
+const PlanModePanel = memo(function PlanModePanel({
+  activePlan,
+  timestampFormat,
+}: PlanModePanelProps) {
   if (!activePlan) return null;
 
   return (
