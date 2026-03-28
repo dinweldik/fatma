@@ -153,6 +153,11 @@ function upsertMessage(thread: Thread, message: Thread["messages"][number]): Thr
   const nextMessage = {
     ...existing,
     ...message,
+    text: message.streaming
+      ? `${existing.text}${message.text}`
+      : message.text.length > 0
+        ? message.text
+        : existing.text,
     ...(message.attachments !== undefined
       ? { attachments: message.attachments }
       : existing.attachments !== undefined
