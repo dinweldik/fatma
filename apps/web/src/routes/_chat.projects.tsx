@@ -16,7 +16,7 @@ function ProjectsRouteView() {
           mobileViewport.isMobile && "pb-[var(--app-mobile-bottom-nav-height,0px)]",
         )}
       >
-        <ThreadSidebar mobilePresentation={mobileViewport.isMobile ? "page" : "sheet"} />
+        <ThreadSidebar />
       </div>
     </SidebarInset>
   );

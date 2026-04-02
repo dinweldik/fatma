@@ -419,17 +419,20 @@ function FileViewer({ filePath, rootPath, onBack }: FileViewerProps) {
           >
             <table className="w-full border-collapse">
               <tbody>
-                {lines.map((line, index) => (
-                  <tr
-                    key={`${index + 1}:${line}`}
-                    className="transition-colors duration-75 hover:bg-accent/30"
-                  >
-                    <td className="sticky left-0 select-none whitespace-nowrap border-r border-border/40 bg-background/90 px-2.5 py-0 text-right text-muted-foreground/50 backdrop-blur-sm">
-                      {String(index + 1).padStart(lineNumberWidth)}
-                    </td>
-                    <td className="whitespace-pre-wrap break-all px-3 py-0">{line || "\u00A0"}</td>
-                  </tr>
-                ))}
+                {lines.map((line, lineIndex) => {
+                  const lineNumber = lineIndex + 1;
+                  const rowKey = line.length > 0 ? `${lineNumber}:${line}` : `blank:${lineNumber}`;
+                  return (
+                    <tr key={rowKey} className="transition-colors duration-75 hover:bg-accent/30">
+                      <td className="sticky left-0 select-none whitespace-nowrap border-r border-border/40 bg-background/90 px-2.5 py-0 text-right text-muted-foreground/50 backdrop-blur-sm">
+                        {String(lineNumber).padStart(lineNumberWidth)}
+                      </td>
+                      <td className="whitespace-pre-wrap break-all px-3 py-0">
+                        {line || "\u00A0"}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

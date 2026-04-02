@@ -1,6 +1,6 @@
 export const DEFAULT_PROJECT_SHELL_MOBILE_PROMPT = "$ ";
 
-const ANSI_ESCAPE_PATTERN = /\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g;
+const ANSI_ESCAPE_PATTERN = /\u001B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g;
 const PROMPT_PREFIX_PATTERN = /^(.*?(?:[$#%>]))(?:\s.*)?$/;
 
 export function normalizeProjectShellMobileOutput(text: string): string {

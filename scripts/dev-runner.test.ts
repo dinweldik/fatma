@@ -13,12 +13,12 @@ import {
 
 it.layer(NodeServices.layer)("dev-runner", (it) => {
   describe("resolveOffset", () => {
-    it.effect("uses explicit T3CODE_PORT_OFFSET when provided", () =>
+    it.effect("uses explicit FATMA_PORT_OFFSET when provided", () =>
       Effect.sync(() => {
         const result = resolveOffset({ portOffset: 12, devInstance: undefined });
         assert.deepStrictEqual(result, {
           offset: 12,
-          source: "T3CODE_PORT_OFFSET=12",
+          source: "FATMA_PORT_OFFSET=12",
         });
       }),
     );
@@ -40,13 +40,13 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
           }),
         );
 
-        assert.ok(error.includes("Invalid T3CODE_PORT_OFFSET"));
+        assert.ok(error.includes("Invalid FATMA_PORT_OFFSET"));
       }),
     );
   });
 
   describe("createDevRunnerEnv", () => {
-    it.effect("defaults T3CODE_HOME to ~/.t3 when not provided", () =>
+    it.effect("defaults FATMA_HOME to ~/.t3 when not provided", () =>
       Effect.gen(function* () {
         const env = yield* createDevRunnerEnv({
           mode: "dev",
@@ -63,7 +63,7 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
           devUrl: undefined,
         });
 
-        assert.equal(env.T3CODE_HOME, resolve(homedir(), ".t3"));
+        assert.equal(env.FATMA_HOME, resolve(homedir(), ".t3"));
       }),
     );
 
@@ -84,13 +84,13 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
           devUrl: new URL("http://localhost:7331"),
         });
 
-        assert.equal(env.T3CODE_HOME, resolve("/tmp/custom-t3"));
-        assert.equal(env.T3CODE_PORT, "4222");
+        assert.equal(env.FATMA_HOME, resolve("/tmp/custom-t3"));
+        assert.equal(env.FATMA_PORT, "4222");
         assert.equal(env.VITE_WS_URL, "ws://localhost:4222");
-        assert.equal(env.T3CODE_NO_BROWSER, "1");
-        assert.equal(env.T3CODE_AUTO_BOOTSTRAP_PROJECT_FROM_CWD, "0");
-        assert.equal(env.T3CODE_LOG_WS_EVENTS, "1");
-        assert.equal(env.T3CODE_HOST, "0.0.0.0");
+        assert.equal(env.FATMA_NO_BROWSER, "1");
+        assert.equal(env.FATMA_AUTO_BOOTSTRAP_PROJECT_FROM_CWD, "0");
+        assert.equal(env.FATMA_LOG_WS_EVENTS, "1");
+        assert.equal(env.FATMA_HOST, "0.0.0.0");
         assert.equal(env.VITE_DEV_SERVER_URL, "http://localhost:7331/");
       }),
     );
@@ -100,7 +100,7 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
         const env = yield* createDevRunnerEnv({
           mode: "dev",
           baseEnv: {
-            T3CODE_LOG_WS_EVENTS: "keep-me-out",
+            FATMA_LOG_WS_EVENTS: "keep-me-out",
           },
           serverOffset: 0,
           webOffset: 0,
@@ -114,8 +114,8 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
           devUrl: undefined,
         });
 
-        assert.equal(env.T3CODE_MODE, "web");
-        assert.equal(env.T3CODE_LOG_WS_EVENTS, undefined);
+        assert.equal(env.FATMA_MODE, "web");
+        assert.equal(env.FATMA_LOG_WS_EVENTS, undefined);
       }),
     );
 
@@ -136,7 +136,7 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
           devUrl: undefined,
         });
 
-        assert.equal(env.T3CODE_LOG_WS_EVENTS, "0");
+        assert.equal(env.FATMA_LOG_WS_EVENTS, "0");
       }),
     );
 
@@ -157,7 +157,44 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
           devUrl: undefined,
         });
 
-        assert.equal(env.T3CODE_HOME, resolve("/tmp/my-t3"));
+        assert.equal(env.FATMA_HOME, resolve("/tmp/my-t3"));
+      }),
+    );
+
+    it.effect("does not export backend bootstrap env for dev:desktop", () =>
+      Effect.gen(function* () {
+        const env = yield* createDevRunnerEnv({
+          mode: "dev:desktop",
+          baseEnv: {
+            FATMA_PORT: "3773",
+            FATMA_AUTH_TOKEN: "stale-token",
+            FATMA_MODE: "web",
+            FATMA_NO_BROWSER: "0",
+            FATMA_HOST: "0.0.0.0",
+            VITE_WS_URL: "ws://localhost:3773",
+          },
+          serverOffset: 0,
+          webOffset: 0,
+          t3Home: "/tmp/my-t3",
+          authToken: "fresh-token",
+          noBrowser: true,
+          autoBootstrapProjectFromCwd: undefined,
+          logWebSocketEvents: undefined,
+          host: "127.0.0.1",
+          port: 4222,
+          devUrl: undefined,
+        });
+
+        assert.equal(env.FATMA_HOME, resolve("/tmp/my-t3"));
+        assert.equal(env.PORT, "5733");
+        assert.equal(env.ELECTRON_RENDERER_PORT, "5733");
+        assert.equal(env.VITE_DEV_SERVER_URL, "http://localhost:5733");
+        assert.equal(env.FATMA_PORT, undefined);
+        assert.equal(env.FATMA_AUTH_TOKEN, undefined);
+        assert.equal(env.FATMA_MODE, undefined);
+        assert.equal(env.FATMA_NO_BROWSER, undefined);
+        assert.equal(env.FATMA_HOST, undefined);
+        assert.equal(env.VITE_WS_URL, undefined);
       }),
     );
   });

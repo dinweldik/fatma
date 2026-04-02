@@ -13,7 +13,6 @@ import {
 } from "lucide-react";
 import { cn } from "~/lib/utils";
 import { formatTimestamp } from "../session-logic";
-import { useAppSettings } from "../appSettings";
 import type { ActivePlanState } from "../session-logic";
 import type { LatestProposedPlanState } from "../session-logic";
 import {
@@ -26,6 +25,7 @@ import {
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "./ui/menu";
 import { readNativeApi } from "~/nativeApi";
 import { toastManager } from "./ui/toast";
+import { useSettings } from "../hooks/useSettings";
 
 function stepStatusIcon(status: string): React.ReactNode {
   if (status === "completed") {
@@ -64,7 +64,7 @@ const PlanSidebar = memo(function PlanSidebar({
   workspaceRoot,
   onClose,
 }: PlanSidebarProps) {
-  const { settings } = useAppSettings();
+  const settings = useSettings();
   const [proposedPlanExpanded, setProposedPlanExpanded] = useState(false);
   const [isSavingToWorkspace, setIsSavingToWorkspace] = useState(false);
   const [copied, setCopied] = useState(false);

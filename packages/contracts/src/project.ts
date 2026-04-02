@@ -73,6 +73,37 @@ export const ProjectCreateDirectoryResult = Schema.Struct({
   path: TrimmedNonEmptyString,
 });
 export type ProjectCreateDirectoryResult = typeof ProjectCreateDirectoryResult.Type;
+export class ProjectSearchEntriesError extends Schema.TaggedErrorClass<ProjectSearchEntriesError>()(
+  "ProjectSearchEntriesError",
+  {
+    message: TrimmedNonEmptyString,
+    cause: Schema.optional(Schema.Defect),
+  },
+) {}
+
+export class ProjectBrowseDirectoryError extends Schema.TaggedErrorClass<ProjectBrowseDirectoryError>()(
+  "ProjectBrowseDirectoryError",
+  {
+    message: TrimmedNonEmptyString,
+    cause: Schema.optional(Schema.Defect),
+  },
+) {}
+
+export class ProjectCreateDirectoryError extends Schema.TaggedErrorClass<ProjectCreateDirectoryError>()(
+  "ProjectCreateDirectoryError",
+  {
+    message: TrimmedNonEmptyString,
+    cause: Schema.optional(Schema.Defect),
+  },
+) {}
+
+export class ProjectReadFileError extends Schema.TaggedErrorClass<ProjectReadFileError>()(
+  "ProjectReadFileError",
+  {
+    message: TrimmedNonEmptyString,
+    cause: Schema.optional(Schema.Defect),
+  },
+) {}
 
 export const ProjectWriteFileInput = Schema.Struct({
   cwd: TrimmedNonEmptyString,
@@ -85,3 +116,11 @@ export const ProjectWriteFileResult = Schema.Struct({
   relativePath: TrimmedNonEmptyString,
 });
 export type ProjectWriteFileResult = typeof ProjectWriteFileResult.Type;
+
+export class ProjectWriteFileError extends Schema.TaggedErrorClass<ProjectWriteFileError>()(
+  "ProjectWriteFileError",
+  {
+    message: TrimmedNonEmptyString,
+    cause: Schema.optional(Schema.Defect),
+  },
+) {}

@@ -55,7 +55,7 @@ const extraAllowedHosts =
 const allowedHosts = Array.from(new Set([".ts.net", ...extraAllowedHosts]));
 const sourcemapEnv =
   process.env.FATMA_WEB_SOURCEMAP?.trim().toLowerCase() ??
-  process.env.T3CODE_WEB_SOURCEMAP?.trim().toLowerCase();
+  process.env.FATMA_WEB_SOURCEMAP?.trim().toLowerCase();
 
 const buildSourcemap =
   sourcemapEnv === "0" || sourcemapEnv === "false"

@@ -29,8 +29,57 @@ import type {
   GitUnstageFilesInput,
 } from "@fatma/contracts";
 
-import type { GitCommandError } from "../Errors.ts";
+import type { GitCommandError } from "@fatma/contracts";
 
+export interface ExecuteGitInput {
+  readonly operation: string;
+  readonly cwd: string;
+  readonly args: ReadonlyArray<string>;
+  readonly stdin?: string;
+  readonly env?: NodeJS.ProcessEnv;
+  readonly allowNonZeroExit?: boolean;
+  readonly timeoutMs?: number;
+  readonly maxOutputBytes?: number;
+  readonly truncateOutputAtMaxBytes?: boolean;
+  readonly progress?: ExecuteGitProgress;
+}
+
+export interface ExecuteGitResult {
+  readonly code: number;
+  readonly stdout: string;
+  readonly stderr: string;
+  readonly stdoutTruncated: boolean;
+  readonly stderrTruncated: boolean;
+}
+
+export interface ExecuteGitProgress {
+  readonly onStdoutLine?: (line: string) => Effect.Effect<void, never>;
+  readonly onStderrLine?: (line: string) => Effect.Effect<void, never>;
+  readonly onHookStarted?: (hookName: string) => Effect.Effect<void, never>;
+  readonly onHookFinished?: (input: {
+    hookName: string;
+    exitCode: number | null;
+    durationMs: number | null;
+  }) => Effect.Effect<void, never>;
+}
+
+export interface GitCommitProgress {
+  readonly onOutputLine?: (input: {
+    stream: "stdout" | "stderr";
+    text: string;
+  }) => Effect.Effect<void, never>;
+  readonly onHookStarted?: (hookName: string) => Effect.Effect<void, never>;
+  readonly onHookFinished?: (input: {
+    hookName: string;
+    exitCode: number | null;
+    durationMs: number | null;
+  }) => Effect.Effect<void, never>;
+}
+
+export interface GitCommitOptions {
+  readonly timeoutMs?: number;
+  readonly progress?: GitCommitProgress;
+}
 export interface GitStatusDetails extends Omit<GitStatusResult, "pr"> {
   upstreamRef: string | null;
 }
@@ -44,6 +93,11 @@ export interface GitRangeContext {
   commitSummary: string;
   diffSummary: string;
   diffPatch: string;
+}
+
+export interface GitListWorkspaceFilesResult {
+  readonly paths: ReadonlyArray<string>;
+  readonly truncated: boolean;
 }
 
 export interface GitRenameBranchInput {
@@ -87,6 +141,11 @@ export interface GitSetBranchUpstreamInput {
  */
 export interface GitCoreShape {
   /**
+   * Execute a raw Git command with progress hooks and timeout controls.
+   */
+  readonly execute: (input: ExecuteGitInput) => Effect.Effect<ExecuteGitResult, GitCommandError>;
+
+  /**
    * Read Git status for a repository.
    */
   readonly status: (input: GitStatusInput) => Effect.Effect<GitStatusResult, GitCommandError>;
@@ -119,6 +178,7 @@ export interface GitCoreShape {
    */
   readonly prepareCommitContext: (
     cwd: string,
+    filePaths?: ReadonlyArray<string>,
   ) => Effect.Effect<GitPreparedCommitContext | null, GitCommandError>;
 
   /**
@@ -136,6 +196,7 @@ export interface GitCoreShape {
     cwd: string,
     subject: string,
     body: string,
+    options?: GitCommitOptions,
   ) => Effect.Effect<{ commitSha: string }, GitCommandError>;
 
   /**
@@ -166,6 +227,26 @@ export interface GitCoreShape {
     cwd: string,
     key: string,
   ) => Effect.Effect<string | null, GitCommandError>;
+
+  /**
+   * Determine whether the provided cwd is inside a git work tree.
+   */
+  readonly isInsideWorkTree: (cwd: string) => Effect.Effect<boolean, GitCommandError>;
+
+  /**
+   * List tracked and untracked workspace file paths relative to cwd.
+   */
+  readonly listWorkspaceFiles: (
+    cwd: string,
+  ) => Effect.Effect<GitListWorkspaceFilesResult, GitCommandError>;
+
+  /**
+   * Remove gitignored paths from a relative path list.
+   */
+  readonly filterIgnoredPaths: (
+    cwd: string,
+    relativePaths: ReadonlyArray<string>,
+  ) => Effect.Effect<ReadonlyArray<string>, GitCommandError>;
 
   /**
    * List local + remote branches and branch metadata.

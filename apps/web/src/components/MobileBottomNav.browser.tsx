@@ -67,8 +67,10 @@ const PROJECT: Project = {
   id: PROJECT_ID,
   name: "Mobile Shell Project",
   cwd: "/root/fatma/apps/server",
-  model: "gpt-5",
-  expanded: true,
+  defaultModelSelection: {
+    provider: "codex",
+    model: "gpt-5",
+  },
   scripts: [],
 };
 

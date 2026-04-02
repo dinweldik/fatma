@@ -6,9 +6,9 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { it } from "@effect/vitest";
 import { Effect, FileSystem, Layer, PlatformError, Scope } from "effect";
 import { expect } from "vitest";
-import type { GitActionProgressEvent } from "@fatma/contracts";
+import type { GitActionProgressEvent, ModelSelection } from "@fatma/contracts";
 
-import { GitCommandError, GitHubCliError, TextGenerationError } from "../Errors.ts";
+import { GitCommandError, GitHubCliError, TextGenerationError } from "@fatma/contracts";
 import { type GitManagerShape } from "../Services/GitManager.ts";
 import {
   type GitHubCliShape,
@@ -17,15 +17,15 @@ import {
 } from "../Services/GitHubCli.ts";
 import { type TextGenerationShape, TextGeneration } from "../Services/TextGeneration.ts";
 import { GitCoreLive } from "./GitCore.ts";
-import { GitServiceLive } from "./GitService.ts";
 import { GitCore } from "../Services/GitCore.ts";
-import { GitService } from "../Services/GitService.ts";
 import { makeGitManager } from "./GitManager.ts";
 import { ServerConfig } from "../../config.ts";
+import { ServerSettingsService } from "../../serverSettings.ts";
 
 interface FakeGhScenario {
   prListSequence?: string[];
   prListByHeadSelector?: Record<string, string>;
+  prListSequenceByHeadSelector?: Record<string, string[]>;
   createdPrUrl?: string;
   defaultBranch?: string;
   pullRequest?: {
@@ -50,6 +50,7 @@ interface FakeGitTextGeneration {
     stagedSummary: string;
     stagedPatch: string;
     includeBranch?: boolean;
+    modelSelection: ModelSelection;
   }) => Effect.Effect<
     { subject: string; body: string; branch?: string | undefined },
     TextGenerationError
@@ -61,14 +62,87 @@ interface FakeGitTextGeneration {
     commitSummary: string;
     diffSummary: string;
     diffPatch: string;
+    modelSelection: ModelSelection;
   }) => Effect.Effect<{ title: string; body: string }, TextGenerationError>;
   generateBranchName: (input: {
     cwd: string;
     message: string;
+    modelSelection: ModelSelection;
   }) => Effect.Effect<{ branch: string }, TextGenerationError>;
+  generateThreadTitle: (input: {
+    cwd: string;
+    message: string;
+    modelSelection: ModelSelection;
+  }) => Effect.Effect<{ title: string }, TextGenerationError>;
 }
 
 type FakePullRequest = NonNullable<FakeGhScenario["pullRequest"]>;
+
+function normalizeFakePullRequestSummary(raw: unknown): GitHubPullRequestSummary | null {
+  if (!raw || typeof raw !== "object") {
+    return null;
+  }
+
+  const record = raw as Record<string, unknown>;
+  const number = record.number;
+  const title = record.title;
+  const url = record.url;
+  const baseRefName = record.baseRefName;
+  const headRefName = record.headRefName;
+  const headRepository =
+    typeof record.headRepository === "object" && record.headRepository !== null
+      ? (record.headRepository as Record<string, unknown>)
+      : null;
+  const headRepositoryOwner =
+    typeof record.headRepositoryOwner === "object" && record.headRepositoryOwner !== null
+      ? (record.headRepositoryOwner as Record<string, unknown>)
+      : null;
+
+  if (
+    typeof number !== "number" ||
+    typeof title !== "string" ||
+    typeof url !== "string" ||
+    typeof baseRefName !== "string" ||
+    typeof headRefName !== "string"
+  ) {
+    return null;
+  }
+
+  const state =
+    typeof record.state === "string"
+      ? record.state === "OPEN" || record.state === "open"
+        ? "open"
+        : record.state === "CLOSED" || record.state === "closed"
+          ? "closed"
+          : "merged"
+      : undefined;
+  const isCrossRepository =
+    typeof record.isCrossRepository === "boolean" ? record.isCrossRepository : undefined;
+  const headRepositoryNameWithOwner =
+    typeof record.headRepositoryNameWithOwner === "string"
+      ? record.headRepositoryNameWithOwner
+      : typeof headRepository?.nameWithOwner === "string"
+        ? headRepository.nameWithOwner
+        : undefined;
+  const headRepositoryOwnerLogin =
+    typeof record.headRepositoryOwnerLogin === "string"
+      ? record.headRepositoryOwnerLogin
+      : typeof headRepositoryOwner?.login === "string"
+        ? headRepositoryOwner.login
+        : undefined;
+
+  return {
+    number,
+    title,
+    url,
+    baseRefName,
+    headRefName,
+    ...(state ? { state } : {}),
+    ...(isCrossRepository !== undefined ? { isCrossRepository } : {}),
+    ...(headRepositoryNameWithOwner ? { headRepositoryNameWithOwner } : {}),
+    ...(headRepositoryOwnerLogin ? { headRepositoryOwnerLogin } : {}),
+  };
+}
 
 function runGitSyncForFakeGh(cwd: string, args: readonly string[]): void {
   const result = spawnSync("git", args, {
@@ -109,11 +183,11 @@ function runGit(
 ): Effect.Effect<
   { readonly code: number; readonly stdout: string; readonly stderr: string },
   GitCommandError,
-  GitService
+  GitCore
 > {
   return Effect.gen(function* () {
-    const gitService = yield* GitService;
-    return yield* gitService.execute({
+    const gitCore = yield* GitCore;
+    return yield* gitCore.execute({
       operation: "GitManager.test.runGit",
       cwd,
       args,
@@ -127,7 +201,7 @@ function initRepo(
 ): Effect.Effect<
   void,
   PlatformError.PlatformError | GitCommandError,
-  FileSystem.FileSystem | Scope.Scope | GitService
+  FileSystem.FileSystem | Scope.Scope | GitCore
 > {
   return Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
@@ -143,12 +217,29 @@ function initRepo(
 function createBareRemote(): Effect.Effect<
   string,
   PlatformError.PlatformError | GitCommandError,
-  FileSystem.FileSystem | Scope.Scope | GitService
+  FileSystem.FileSystem | Scope.Scope | GitCore
 > {
   return Effect.gen(function* () {
     const remoteDir = yield* makeTempDir("fatma-git-remote-");
     yield* runGit(remoteDir, ["init", "--bare"]);
     return remoteDir;
+  });
+}
+
+function configureRemote(
+  cwd: string,
+  remoteName: string,
+  remotePath: string,
+  fetchNamespace: string,
+): Effect.Effect<void, GitCommandError, GitCore> {
+  return Effect.gen(function* () {
+    yield* runGit(cwd, ["config", `remote.${remoteName}.url`, remotePath]);
+    yield* runGit(cwd, [
+      "config",
+      "--replace-all",
+      `remote.${remoteName}.fetch`,
+      `+refs/heads/*:refs/remotes/${fetchNamespace}/*`,
+    ]);
   });
 }
 
@@ -168,6 +259,10 @@ function createTextGeneration(overrides: Partial<FakeGitTextGeneration> = {}): T
     generateBranchName: () =>
       Effect.succeed({
         branch: "update-workflow",
+      }),
+    generateThreadTitle: () =>
+      Effect.succeed({
+        title: "Update workflow",
       }),
     ...overrides,
   };
@@ -206,6 +301,17 @@ function createTextGeneration(overrides: Partial<FakeGitTextGeneration> = {}): T
             }),
         ),
       ),
+    generateThreadTitle: (input) =>
+      implementation.generateThreadTitle(input).pipe(
+        Effect.mapError(
+          (cause) =>
+            new TextGenerationError({
+              operation: "generateThreadTitle",
+              detail: "fake text generation failed",
+              ...(cause !== undefined ? { cause } : {}),
+            }),
+        ),
+      ),
   };
 }
 
@@ -214,6 +320,12 @@ function createGitHubCliWithFakeGh(scenario: FakeGhScenario = {}): {
   ghCalls: string[];
 } {
   const prListQueue = [...(scenario.prListSequence ?? [])];
+  const prListQueueByHeadSelector = new Map(
+    Object.entries(scenario.prListSequenceByHeadSelector ?? {}).map(([headSelector, values]) => [
+      headSelector,
+      [...values],
+    ]),
+  );
   const ghCalls: string[] = [];
 
   const execute: GitHubCliShape["execute"] = (input) => {
@@ -230,11 +342,15 @@ function createGitHubCliWithFakeGh(scenario: FakeGhScenario = {}): {
         headSelectorIndex >= 0 && headSelectorIndex < args.length - 1
           ? args[headSelectorIndex + 1]
           : undefined;
+      const mappedQueue =
+        typeof headSelector === "string"
+          ? prListQueueByHeadSelector.get(headSelector)?.shift()
+          : undefined;
       const mappedStdout =
         typeof headSelector === "string"
           ? scenario.prListByHeadSelector?.[headSelector]
           : undefined;
-      const stdout = (mappedStdout ?? prListQueue.shift() ?? "[]") + "\n";
+      const stdout = (mappedQueue ?? mappedStdout ?? prListQueue.shift() ?? "[]") + "\n";
       return Effect.succeed({
         stdout,
         stderr: "",
@@ -388,11 +504,14 @@ function createGitHubCliWithFakeGh(scenario: FakeGhScenario = {}): {
             "--limit",
             String(input.limit ?? 1),
             "--json",
-            "number,title,url,baseRefName,headRefName",
+            "number,title,url,baseRefName,headRefName,state,mergedAt,isCrossRepository,headRepository,headRepositoryOwner",
           ],
         }).pipe(
-          Effect.map(
-            (result) => JSON.parse(result.stdout) as ReadonlyArray<GitHubPullRequestSummary>,
+          Effect.map((result) => JSON.parse(result.stdout) as unknown[]),
+          Effect.map((raw) =>
+            raw
+              .map((entry) => normalizeFakePullRequestSummary(entry))
+              .filter((entry): entry is GitHubPullRequestSummary => entry !== null),
           ),
         ),
       createPullRequest: (input) =>
@@ -451,7 +570,7 @@ function runStackedAction(
   manager: GitManagerShape,
   input: {
     cwd: string;
-    action: "commit" | "commit_push" | "commit_push_pr";
+    action: "commit" | "push" | "create_pr" | "commit_push" | "commit_push_pr";
     actionId?: string;
     commitMessage?: string;
     featureBranch?: boolean;
@@ -489,6 +608,8 @@ function makeManager(input?: {
     prefix: "t3-git-manager-test-",
   });
 
+  const serverSettingsLayer = ServerSettingsService.layerTest();
+
   const gitCoreLayer = GitCoreLive.pipe(
     Layer.provideMerge(NodeServices.layer),
     Layer.provideMerge(ServerConfigLayer),
@@ -498,16 +619,16 @@ function makeManager(input?: {
     Layer.succeed(GitHubCli, gitHubCli),
     Layer.succeed(TextGeneration, textGeneration),
     gitCoreLayer,
+    serverSettingsLayer,
   ).pipe(Layer.provideMerge(NodeServices.layer));
 
-  return makeGitManager.pipe(
+  return makeGitManager().pipe(
     Effect.provide(managerLayer),
     Effect.map((manager) => ({ manager, ghCalls })),
   );
 }
 
 const GitManagerTestLayer = GitCoreLive.pipe(
-  Layer.provideMerge(GitServiceLive),
   Layer.provide(ServerConfig.layerTest(process.cwd(), { prefix: "t3-git-manager-test-" })),
   Layer.provideMerge(NodeServices.layer),
 );
@@ -551,11 +672,83 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
     }),
   );
 
+  it.effect("status briefly caches repeated lookups for the same cwd", () =>
+    Effect.gen(function* () {
+      const repoDir = yield* makeTempDir("fatma-git-manager-");
+      yield* initRepo(repoDir);
+      yield* runGit(repoDir, ["checkout", "-b", "feature/status-cache"]);
+      const remoteDir = yield* createBareRemote();
+      yield* runGit(repoDir, ["remote", "add", "origin", remoteDir]);
+      yield* runGit(repoDir, ["push", "-u", "origin", "feature/status-cache"]);
+
+      const existingPr = {
+        number: 113,
+        title: "Cached PR",
+        url: "https://github.com/pingdotgg/codething-mvp/pull/113",
+        baseRefName: "main",
+        headRefName: "feature/status-cache",
+      };
+      const { manager, ghCalls } = yield* makeManager({
+        ghScenario: {
+          prListSequence: [JSON.stringify([existingPr]), JSON.stringify([existingPr])],
+        },
+      });
+
+      const first = yield* manager.status({ cwd: repoDir });
+      const second = yield* manager.status({ cwd: repoDir });
+
+      expect(first.pr?.number).toBe(113);
+      expect(second.pr?.number).toBe(113);
+      expect(ghCalls.filter((call) => call.startsWith("pr list "))).toHaveLength(1);
+    }),
+  );
+
+  it.effect(
+    "status ignores unrelated fork PRs when the current branch tracks the same repository",
+    () =>
+      Effect.gen(function* () {
+        const repoDir = yield* makeTempDir("fatma-git-manager-");
+        yield* initRepo(repoDir);
+        const remoteDir = yield* createBareRemote();
+        yield* runGit(repoDir, ["remote", "add", "origin", remoteDir]);
+        yield* runGit(repoDir, ["push", "-u", "origin", "main"]);
+
+        const { manager } = yield* makeManager({
+          ghScenario: {
+            prListSequence: [
+              JSON.stringify([
+                {
+                  number: 1661,
+                  title: "Fork PR from main",
+                  url: "https://github.com/pingdotgg/fatma/pull/1661",
+                  baseRefName: "main",
+                  headRefName: "main",
+                  state: "OPEN",
+                  updatedAt: "2026-04-01T15:00:00Z",
+                  isCrossRepository: true,
+                  headRepository: {
+                    nameWithOwner: "lnieuwenhuis/fatma",
+                  },
+                  headRepositoryOwner: {
+                    login: "lnieuwenhuis",
+                  },
+                },
+              ]),
+            ],
+          },
+        });
+
+        const status = yield* manager.status({ cwd: repoDir });
+        expect(status.branch).toBe("main");
+        expect(status.pr).toBeNull();
+      }),
+  );
+
   it.effect(
     "status detects cross-repo PRs from the upstream remote URL owner",
     () =>
       Effect.gen(function* () {
-        const repoDir = yield* makeTempDir("t3code-git-manager-");
+        const repoDir = yield* makeTempDir("fatma-git-manager-");
         yield* initRepo(repoDir);
         const forkDir = yield* createBareRemote();
         yield* runGit(repoDir, ["remote", "add", "fork-seed", forkDir]);
@@ -564,7 +757,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
         yield* runGit(repoDir, ["add", "fork-pr.txt"]);
         yield* runGit(repoDir, ["commit", "-m", "Fork PR branch"]);
         yield* runGit(repoDir, ["push", "-u", "fork-seed", "statemachine"]);
-        yield* runGit(repoDir, ["checkout", "-b", "t3code/pr-488/statemachine"]);
+        yield* runGit(repoDir, ["checkout", "-b", "fatma/pr-488/statemachine"]);
         yield* runGit(repoDir, ["branch", "--set-upstream-to", "fork-seed/statemachine"]);
         yield* runGit(repoDir, [
           "config",
@@ -586,6 +779,13 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
                   headRefName: "statemachine",
                   state: "OPEN",
                   updatedAt: "2026-03-10T07:00:00Z",
+                  isCrossRepository: true,
+                  headRepository: {
+                    nameWithOwner: "jasonLaster/codething-mvp",
+                  },
+                  headRepositoryOwner: {
+                    login: "jasonLaster",
+                  },
                 },
               ]),
             ],
@@ -593,7 +793,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
         });
 
         const status = yield* manager.status({ cwd: repoDir });
-        expect(status.branch).toBe("t3code/pr-488/statemachine");
+        expect(status.branch).toBe("fatma/pr-488/statemachine");
         expect(status.pr).toEqual({
           number: 488,
           title: "Rebase this PR on latest main",
@@ -603,8 +803,116 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
           state: "open",
         });
         expect(ghCalls).toContain(
-          "pr list --head jasonLaster:statemachine --state all --limit 20 --json number,title,url,baseRefName,headRefName,state,mergedAt,updatedAt",
+          "pr list --head jasonLaster:statemachine --state all --limit 20 --json number,title,url,baseRefName,headRefName,state,mergedAt,updatedAt,isCrossRepository,headRepository,headRepositoryOwner",
         );
+      }),
+    12_000,
+  );
+
+  it.effect(
+    "status ignores synthetic local branch aliases when the upstream remote name contains slashes",
+    () =>
+      Effect.gen(function* () {
+        const repoDir = yield* makeTempDir("fatma-git-manager-");
+        yield* initRepo(repoDir);
+        const originDir = yield* createBareRemote();
+        const upstreamDir = yield* createBareRemote();
+        yield* configureRemote(repoDir, "origin", originDir, "origin");
+        yield* configureRemote(repoDir, "my-org/upstream", upstreamDir, "my-org/upstream");
+
+        yield* runGit(repoDir, ["checkout", "-b", "effect-atom"]);
+        yield* runGit(repoDir, ["push", "-u", "origin", "effect-atom"]);
+        yield* runGit(repoDir, ["push", "-u", "my-org/upstream", "effect-atom"]);
+        yield* runGit(repoDir, [
+          "config",
+          "remote.origin.url",
+          "git@github.com:pingdotgg/codething-mvp.git",
+        ]);
+        yield* runGit(repoDir, ["config", "remote.origin.pushurl", originDir]);
+        yield* runGit(repoDir, [
+          "config",
+          "remote.my-org/upstream.url",
+          "git@github.com:pingdotgg/codething-mvp.git",
+        ]);
+        yield* runGit(repoDir, ["config", "remote.my-org/upstream.pushurl", upstreamDir]);
+        yield* runGit(repoDir, ["checkout", "main"]);
+        yield* runGit(repoDir, ["branch", "-D", "effect-atom"]);
+        yield* runGit(repoDir, ["checkout", "--track", "my-org/upstream/effect-atom"]);
+
+        const { manager, ghCalls } = yield* makeManager({
+          ghScenario: {
+            prListByHeadSelector: {
+              "effect-atom": JSON.stringify([
+                {
+                  number: 1618,
+                  title: "Correct PR",
+                  url: "https://github.com/pingdotgg/fatma/pull/1618",
+                  baseRefName: "main",
+                  headRefName: "effect-atom",
+                  state: "OPEN",
+                  updatedAt: "2026-03-01T10:00:00Z",
+                },
+              ]),
+              "upstream/effect-atom": JSON.stringify([
+                {
+                  number: 1518,
+                  title: "Wrong PR",
+                  url: "https://github.com/pingdotgg/fatma/pull/1518",
+                  baseRefName: "main",
+                  headRefName: "upstream/effect-atom",
+                  state: "OPEN",
+                  updatedAt: "2026-04-01T10:00:00Z",
+                },
+              ]),
+              "pingdotgg:effect-atom": JSON.stringify([]),
+              "my-org/upstream:effect-atom": JSON.stringify([]),
+              "pingdotgg:upstream/effect-atom": JSON.stringify([
+                {
+                  number: 1518,
+                  title: "Wrong PR",
+                  url: "https://github.com/pingdotgg/fatma/pull/1518",
+                  baseRefName: "main",
+                  headRefName: "upstream/effect-atom",
+                  state: "OPEN",
+                  updatedAt: "2026-04-01T10:00:00Z",
+                },
+              ]),
+              "my-org/upstream:upstream/effect-atom": JSON.stringify([
+                {
+                  number: 1518,
+                  title: "Wrong PR",
+                  url: "https://github.com/pingdotgg/fatma/pull/1518",
+                  baseRefName: "main",
+                  headRefName: "upstream/effect-atom",
+                  state: "OPEN",
+                  updatedAt: "2026-04-01T10:00:00Z",
+                },
+              ]),
+            },
+          },
+        });
+
+        const status = yield* manager.status({ cwd: repoDir });
+        expect(status.branch).toBe("upstream/effect-atom");
+        expect(status.pr).toEqual({
+          number: 1618,
+          title: "Correct PR",
+          url: "https://github.com/pingdotgg/fatma/pull/1618",
+          baseBranch: "main",
+          headBranch: "effect-atom",
+          state: "open",
+        });
+        expect(ghCalls.some((call) => call.includes("pr list --head upstream/effect-atom "))).toBe(
+          false,
+        );
+        expect(
+          ghCalls.some((call) => call.includes("pr list --head pingdotgg:upstream/effect-atom ")),
+        ).toBe(false);
+        expect(
+          ghCalls.some((call) =>
+            call.includes("pr list --head my-org/upstream:upstream/effect-atom "),
+          ),
+        ).toBe(false);
       }),
     12_000,
   );
@@ -734,6 +1042,17 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
       expect(result.commit.status).toBe("created");
       expect(result.push.status).toBe("skipped_not_requested");
       expect(result.pr.status).toBe("skipped_not_requested");
+      expect(result.toast).toMatchObject({
+        description: "Implement stacked git actions",
+        cta: {
+          kind: "run_action",
+          label: "Push",
+          action: {
+            kind: "push",
+          },
+        },
+      });
+      expect(result.toast.title).toMatch(/^Committed [0-9a-f]{7}$/);
       expect(
         yield* runGit(repoDir, ["log", "-1", "--pretty=%s"]).pipe(
           Effect.map((result) => result.stdout.trim()),
@@ -787,7 +1106,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
 
   it.effect("commits only selected files when filePaths is provided", () =>
     Effect.gen(function* () {
-      const repoDir = yield* makeTempDir("t3code-git-manager-");
+      const repoDir = yield* makeTempDir("fatma-git-manager-");
       yield* initRepo(repoDir);
       fs.writeFileSync(path.join(repoDir, "a.txt"), "file a\n");
       fs.writeFileSync(path.join(repoDir, "b.txt"), "file b\n");
@@ -843,6 +1162,19 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
       expect(result.branch.name).toBe("feature/implement-stacked-git-actions");
       expect(result.commit.status).toBe("created");
       expect(result.push.status).toBe("pushed");
+      expect(result.toast).toMatchObject({
+        description: "Implement stacked git actions",
+        cta: {
+          kind: "run_action",
+          label: "Create PR",
+          action: {
+            kind: "create_pr",
+          },
+        },
+      });
+      expect(result.toast.title).toMatch(
+        /^Pushed [0-9a-f]{7} to origin\/feature\/implement-stacked-git-actions$/,
+      );
       expect(
         yield* runGit(repoDir, ["rev-parse", "--abbrev-ref", "HEAD"]).pipe(
           Effect.map((result) => result.stdout.trim()),
@@ -1039,6 +1371,80 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
     }),
   );
 
+  it.effect("pushes existing clean commits without rerunning commit logic", () =>
+    Effect.gen(function* () {
+      const repoDir = yield* makeTempDir("fatma-git-manager-");
+      yield* initRepo(repoDir);
+      yield* runGit(repoDir, ["checkout", "-b", "feature/push-only"]);
+      const remoteDir = yield* createBareRemote();
+      yield* runGit(repoDir, ["remote", "add", "origin", remoteDir]);
+      fs.writeFileSync(path.join(repoDir, "push-only.txt"), "push only\n");
+      yield* runGit(repoDir, ["add", "push-only.txt"]);
+      yield* runGit(repoDir, ["commit", "-m", "Push only branch"]);
+
+      const { manager } = yield* makeManager();
+      const result = yield* runStackedAction(manager, {
+        cwd: repoDir,
+        action: "push",
+      });
+
+      expect(result.commit.status).toBe("skipped_not_requested");
+      expect(result.push.status).toBe("pushed");
+      expect(result.pr.status).toBe("skipped_not_requested");
+      expect(
+        yield* runGit(repoDir, ["rev-parse", "--abbrev-ref", "@{upstream}"]).pipe(
+          Effect.map((output) => output.stdout.trim()),
+        ),
+      ).toBe("origin/feature/push-only");
+    }),
+  );
+
+  it.effect("create_pr pushes a clean branch before creating the PR when needed", () =>
+    Effect.gen(function* () {
+      const repoDir = yield* makeTempDir("fatma-git-manager-");
+      yield* initRepo(repoDir);
+      yield* runGit(repoDir, ["checkout", "-b", "feature/create-pr-only"]);
+      const remoteDir = yield* createBareRemote();
+      yield* runGit(repoDir, ["remote", "add", "origin", remoteDir]);
+      fs.writeFileSync(path.join(repoDir, "create-pr-only.txt"), "create pr\n");
+      yield* runGit(repoDir, ["add", "create-pr-only.txt"]);
+      yield* runGit(repoDir, ["commit", "-m", "Create PR only branch"]);
+
+      const { manager, ghCalls } = yield* makeManager({
+        ghScenario: {
+          prListSequence: [
+            "[]",
+            JSON.stringify([
+              {
+                number: 303,
+                title: "Create PR only branch",
+                url: "https://github.com/pingdotgg/codething-mvp/pull/303",
+                baseRefName: "main",
+                headRefName: "feature/create-pr-only",
+              },
+            ]),
+          ],
+        },
+      });
+
+      const result = yield* runStackedAction(manager, {
+        cwd: repoDir,
+        action: "create_pr",
+      });
+
+      expect(result.commit.status).toBe("skipped_not_requested");
+      expect(result.push.status).toBe("pushed");
+      expect(result.push.setUpstream).toBe(true);
+      expect(result.pr.status).toBe("created");
+      expect(result.pr.number).toBe(303);
+      expect(
+        ghCalls.some((call) =>
+          call.includes("pr create --base main --head feature/create-pr-only"),
+        ),
+      ).toBe(true);
+    }),
+  );
+
   it.effect("returns existing PR metadata for commit/push/pr action", () =>
     Effect.gen(function* () {
       const repoDir = yield* makeTempDir("fatma-git-manager-");
@@ -1071,6 +1477,15 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
       expect(result.branch.status).toBe("skipped_not_requested");
       expect(result.pr.status).toBe("opened_existing");
       expect(result.pr.number).toBe(42);
+      expect(result.toast).toEqual({
+        title: "Opened PR #42",
+        description: "Existing PR",
+        cta: {
+          kind: "open_pr",
+          label: "View PR",
+          url: "https://github.com/pingdotgg/codething-mvp/pull/42",
+        },
+      });
       expect(ghCalls.some((call) => call.startsWith("pr view "))).toBe(false);
     }),
   );
@@ -1079,7 +1494,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
     "returns existing cross-repo PR metadata using the fork owner selector",
     () =>
       Effect.gen(function* () {
-        const repoDir = yield* makeTempDir("t3code-git-manager-");
+        const repoDir = yield* makeTempDir("fatma-git-manager-");
         yield* initRepo(repoDir);
         yield* runGit(repoDir, ["checkout", "-b", "statemachine"]);
         const forkDir = yield* createBareRemote();
@@ -1102,6 +1517,14 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
                   url: "https://github.com/pingdotgg/codething-mvp/pull/142",
                   baseRefName: "main",
                   headRefName: "statemachine",
+                  state: "OPEN",
+                  isCrossRepository: true,
+                  headRepository: {
+                    nameWithOwner: "octocat/codething-mvp",
+                  },
+                  headRepositoryOwner: {
+                    login: "octocat",
+                  },
                 },
               ]),
             ],
@@ -1126,16 +1549,108 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
   );
 
   it.effect(
+    "returns the correct existing PR when a slash remote checks out to a synthetic local alias",
+    () =>
+      Effect.gen(function* () {
+        const repoDir = yield* makeTempDir("fatma-git-manager-");
+        yield* initRepo(repoDir);
+        const originDir = yield* createBareRemote();
+        const upstreamDir = yield* createBareRemote();
+        yield* configureRemote(repoDir, "origin", originDir, "origin");
+        yield* configureRemote(repoDir, "my-org/upstream", upstreamDir, "my-org/upstream");
+
+        yield* runGit(repoDir, ["checkout", "-b", "effect-atom"]);
+        yield* runGit(repoDir, ["push", "-u", "origin", "effect-atom"]);
+        yield* runGit(repoDir, ["push", "-u", "my-org/upstream", "effect-atom"]);
+        yield* runGit(repoDir, [
+          "config",
+          "remote.origin.url",
+          "git@github.com:pingdotgg/codething-mvp.git",
+        ]);
+        yield* runGit(repoDir, ["config", "remote.origin.pushurl", originDir]);
+        yield* runGit(repoDir, [
+          "config",
+          "remote.my-org/upstream.url",
+          "git@github.com:pingdotgg/codething-mvp.git",
+        ]);
+        yield* runGit(repoDir, ["config", "remote.my-org/upstream.pushurl", upstreamDir]);
+        yield* runGit(repoDir, ["checkout", "main"]);
+        yield* runGit(repoDir, ["branch", "-D", "effect-atom"]);
+        yield* runGit(repoDir, ["checkout", "--track", "my-org/upstream/effect-atom"]);
+        fs.writeFileSync(path.join(repoDir, "changes.txt"), "change\n");
+        yield* runGit(repoDir, ["add", "changes.txt"]);
+        yield* runGit(repoDir, ["commit", "-m", "Feature commit"]);
+
+        const { manager, ghCalls } = yield* makeManager({
+          ghScenario: {
+            prListByHeadSelector: {
+              "effect-atom": JSON.stringify([
+                {
+                  number: 1618,
+                  title: "Correct PR",
+                  url: "https://github.com/pingdotgg/fatma/pull/1618",
+                  baseRefName: "main",
+                  headRefName: "effect-atom",
+                },
+              ]),
+              "upstream/effect-atom": JSON.stringify([
+                {
+                  number: 1518,
+                  title: "Wrong PR",
+                  url: "https://github.com/pingdotgg/fatma/pull/1518",
+                  baseRefName: "main",
+                  headRefName: "upstream/effect-atom",
+                },
+              ]),
+              "pingdotgg:effect-atom": JSON.stringify([]),
+              "my-org/upstream:effect-atom": JSON.stringify([]),
+              "pingdotgg:upstream/effect-atom": JSON.stringify([
+                {
+                  number: 1518,
+                  title: "Wrong PR",
+                  url: "https://github.com/pingdotgg/fatma/pull/1518",
+                  baseRefName: "main",
+                  headRefName: "upstream/effect-atom",
+                },
+              ]),
+              "my-org/upstream:upstream/effect-atom": JSON.stringify([
+                {
+                  number: 1518,
+                  title: "Wrong PR",
+                  url: "https://github.com/pingdotgg/fatma/pull/1518",
+                  baseRefName: "main",
+                  headRefName: "upstream/effect-atom",
+                },
+              ]),
+            },
+          },
+        });
+
+        const result = yield* runStackedAction(manager, {
+          cwd: repoDir,
+          action: "commit_push_pr",
+        });
+
+        expect(result.pr.status).toBe("opened_existing");
+        expect(result.pr.number).toBe(1618);
+        expect(ghCalls.some((call) => call.includes("pr list --head upstream/effect-atom "))).toBe(
+          false,
+        );
+      }),
+    12_000,
+  );
+
+  it.effect(
     "prefers owner-qualified selectors before bare branch names for cross-repo PRs",
     () =>
       Effect.gen(function* () {
-        const repoDir = yield* makeTempDir("t3code-git-manager-");
+        const repoDir = yield* makeTempDir("fatma-git-manager-");
         yield* initRepo(repoDir);
         yield* runGit(repoDir, ["checkout", "-b", "statemachine"]);
         const forkDir = yield* createBareRemote();
         yield* runGit(repoDir, ["remote", "add", "fork-seed", forkDir]);
         yield* runGit(repoDir, ["push", "-u", "fork-seed", "statemachine"]);
-        yield* runGit(repoDir, ["checkout", "-b", "t3code/pr-142/statemachine"]);
+        yield* runGit(repoDir, ["checkout", "-b", "fatma/pr-142/statemachine"]);
         yield* runGit(repoDir, ["branch", "--set-upstream-to", "fork-seed/statemachine"]);
         yield* runGit(repoDir, [
           "config",
@@ -1146,7 +1661,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
         const { manager, ghCalls } = yield* makeManager({
           ghScenario: {
             prListByHeadSelector: {
-              "t3code/pr-142/statemachine": JSON.stringify([]),
+              "fatma/pr-142/statemachine": JSON.stringify([]),
               statemachine: JSON.stringify([
                 {
                   number: 41,
@@ -1163,6 +1678,14 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
                   url: "https://github.com/pingdotgg/codething-mvp/pull/142",
                   baseRefName: "main",
                   headRefName: "statemachine",
+                  state: "OPEN",
+                  isCrossRepository: true,
+                  headRepository: {
+                    nameWithOwner: "octocat/codething-mvp",
+                  },
+                  headRepositoryOwner: {
+                    login: "octocat",
+                  },
                 },
               ]),
               "fork-seed:statemachine": JSON.stringify([]),
@@ -1191,13 +1714,13 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
     "stops probing head selectors after finding an existing PR",
     () =>
       Effect.gen(function* () {
-        const repoDir = yield* makeTempDir("t3code-git-manager-");
+        const repoDir = yield* makeTempDir("fatma-git-manager-");
         yield* initRepo(repoDir);
         yield* runGit(repoDir, ["checkout", "-b", "statemachine"]);
         const forkDir = yield* createBareRemote();
         yield* runGit(repoDir, ["remote", "add", "fork-seed", forkDir]);
         yield* runGit(repoDir, ["push", "-u", "fork-seed", "statemachine"]);
-        yield* runGit(repoDir, ["checkout", "-b", "t3code/pr-142/statemachine"]);
+        yield* runGit(repoDir, ["checkout", "-b", "fatma/pr-142/statemachine"]);
         yield* runGit(repoDir, ["branch", "--set-upstream-to", "fork-seed/statemachine"]);
         yield* runGit(repoDir, [
           "config",
@@ -1215,10 +1738,18 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
                   url: "https://github.com/pingdotgg/codething-mvp/pull/142",
                   baseRefName: "main",
                   headRefName: "statemachine",
+                  state: "OPEN",
+                  isCrossRepository: true,
+                  headRepository: {
+                    nameWithOwner: "octocat/codething-mvp",
+                  },
+                  headRepositoryOwner: {
+                    login: "octocat",
+                  },
                 },
               ]),
               "fork-seed:statemachine": JSON.stringify([]),
-              "t3code/pr-142/statemachine": JSON.stringify([]),
+              "fatma/pr-142/statemachine": JSON.stringify([]),
               statemachine: JSON.stringify([]),
             },
           },
@@ -1232,9 +1763,9 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
         expect(result.pr.status).toBe("opened_existing");
         expect(result.pr.number).toBe(142);
 
-        const prListCalls = ghCalls.filter((call) => call.startsWith("pr list "));
-        expect(prListCalls).toHaveLength(1);
-        expect(prListCalls[0]).toContain(
+        const openLookupCalls = ghCalls.filter((call) => call.includes("--state open --limit 1"));
+        expect(openLookupCalls).toHaveLength(1);
+        expect(openLookupCalls[0]).toContain(
           "pr list --head octocat:statemachine --state open --limit 1",
         );
       }),
@@ -1278,6 +1809,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
       expect(result.branch.status).toBe("skipped_not_requested");
       expect(result.pr.status).toBe("created");
       expect(result.pr.number).toBe(88);
+      expect(ghCalls.filter((call) => call.startsWith("pr list "))).toHaveLength(2);
       expect(
         ghCalls.some((call) => call.includes("pr create --base main --head feature-create-pr")),
       ).toBe(true);
@@ -1285,9 +1817,81 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
     }),
   );
 
+  it.effect(
+    "creates a new PR instead of reusing an unrelated fork PR with the same head branch",
+    () =>
+      Effect.gen(function* () {
+        const repoDir = yield* makeTempDir("fatma-git-manager-");
+        yield* initRepo(repoDir);
+        yield* runGit(repoDir, ["checkout", "-b", "feature/no-fork-match"]);
+        const remoteDir = yield* createBareRemote();
+        yield* runGit(repoDir, ["remote", "add", "origin", remoteDir]);
+        fs.writeFileSync(path.join(repoDir, "changes.txt"), "change\n");
+        yield* runGit(repoDir, ["add", "changes.txt"]);
+        yield* runGit(repoDir, ["commit", "-m", "Feature commit"]);
+        yield* runGit(repoDir, ["push", "-u", "origin", "feature/no-fork-match"]);
+
+        const { manager, ghCalls } = yield* makeManager({
+          ghScenario: {
+            prListSequence: [
+              JSON.stringify([
+                {
+                  number: 1661,
+                  title: "Fork PR with same branch name",
+                  url: "https://github.com/pingdotgg/fatma/pull/1661",
+                  baseRefName: "main",
+                  headRefName: "feature/no-fork-match",
+                  state: "OPEN",
+                  isCrossRepository: true,
+                  headRepository: {
+                    nameWithOwner: "lnieuwenhuis/fatma",
+                  },
+                  headRepositoryOwner: {
+                    login: "lnieuwenhuis",
+                  },
+                },
+              ]),
+              JSON.stringify([
+                {
+                  number: 188,
+                  title: "Add stacked git actions",
+                  url: "https://github.com/pingdotgg/codething-mvp/pull/188",
+                  baseRefName: "main",
+                  headRefName: "feature/no-fork-match",
+                  state: "OPEN",
+                  isCrossRepository: false,
+                },
+              ]),
+            ],
+          },
+        });
+        const result = yield* runStackedAction(manager, {
+          cwd: repoDir,
+          action: "commit_push_pr",
+        });
+
+        expect(result.pr.status).toBe("created");
+        expect(result.pr.number).toBe(188);
+        expect(result.toast).toEqual({
+          title: "Created PR #188",
+          description: "Add stacked git actions",
+          cta: {
+            kind: "open_pr",
+            label: "View PR",
+            url: "https://github.com/pingdotgg/codething-mvp/pull/188",
+          },
+        });
+        expect(
+          ghCalls.some((call) =>
+            call.includes("pr create --base main --head feature/no-fork-match"),
+          ),
+        ).toBe(true);
+      }),
+  );
+
   it.effect("creates cross-repo PRs with the fork owner selector and default base branch", () =>
     Effect.gen(function* () {
-      const repoDir = yield* makeTempDir("t3code-git-manager-");
+      const repoDir = yield* makeTempDir("fatma-git-manager-");
       yield* initRepo(repoDir);
       const forkDir = yield* createBareRemote();
       yield* runGit(repoDir, ["remote", "add", "fork-seed", forkDir]);
@@ -1296,7 +1900,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
       yield* runGit(repoDir, ["add", "changes.txt"]);
       yield* runGit(repoDir, ["commit", "-m", "Feature commit"]);
       yield* runGit(repoDir, ["push", "-u", "fork-seed", "statemachine"]);
-      yield* runGit(repoDir, ["checkout", "-b", "t3code/pr-91/statemachine"]);
+      yield* runGit(repoDir, ["checkout", "-b", "fatma/pr-91/statemachine"]);
       yield* runGit(repoDir, ["branch", "--set-upstream-to", "fork-seed/statemachine"]);
       yield* runGit(repoDir, [
         "config",
@@ -1306,23 +1910,30 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
 
       const { manager, ghCalls } = yield* makeManager({
         ghScenario: {
-          prListSequence: [
-            JSON.stringify([]),
-            JSON.stringify([]),
-            JSON.stringify([]),
-            JSON.stringify([]),
-            JSON.stringify([]),
-            JSON.stringify([]),
-            JSON.stringify([
-              {
-                number: 188,
-                title: "Add stacked git actions",
-                url: "https://github.com/pingdotgg/codething-mvp/pull/188",
-                baseRefName: "main",
-                headRefName: "statemachine",
-              },
-            ]),
-          ],
+          prListSequenceByHeadSelector: {
+            "octocat:statemachine": [
+              JSON.stringify([]),
+              JSON.stringify([
+                {
+                  number: 188,
+                  title: "Add stacked git actions",
+                  url: "https://github.com/pingdotgg/codething-mvp/pull/188",
+                  baseRefName: "main",
+                  headRefName: "statemachine",
+                  state: "OPEN",
+                  isCrossRepository: true,
+                  headRepository: {
+                    nameWithOwner: "octocat/codething-mvp",
+                  },
+                  headRepositoryOwner: {
+                    login: "octocat",
+                  },
+                },
+              ]),
+            ],
+            "fork-seed:statemachine": [JSON.stringify([])],
+            statemachine: [JSON.stringify([])],
+          },
         },
       });
 
@@ -1422,7 +2033,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
 
   it.effect("resolves pull requests from #number references", () =>
     Effect.gen(function* () {
-      const repoDir = yield* makeTempDir("t3code-git-manager-");
+      const repoDir = yield* makeTempDir("fatma-git-manager-");
       yield* initRepo(repoDir);
 
       const { manager, ghCalls } = yield* makeManager({
@@ -1457,7 +2068,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
 
   it.effect("prepares pull request threads in local mode by checking out the PR branch", () =>
     Effect.gen(function* () {
-      const repoDir = yield* makeTempDir("t3code-git-manager-");
+      const repoDir = yield* makeTempDir("fatma-git-manager-");
       yield* initRepo(repoDir);
       yield* runGit(repoDir, ["checkout", "-b", "feature/pr-local"]);
       fs.writeFileSync(path.join(repoDir, "local.txt"), "local\n");
@@ -1493,7 +2104,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
 
   it.effect("prepares pull request threads in worktree mode on the PR head branch", () =>
     Effect.gen(function* () {
-      const repoDir = yield* makeTempDir("t3code-git-manager-");
+      const repoDir = yield* makeTempDir("fatma-git-manager-");
       yield* initRepo(repoDir);
       const remoteDir = yield* createBareRemote();
       yield* runGit(repoDir, ["remote", "add", "origin", remoteDir]);
@@ -1538,7 +2149,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
 
   it.effect("preserves fork upstream tracking when preparing a worktree PR thread", () =>
     Effect.gen(function* () {
-      const repoDir = yield* makeTempDir("t3code-git-manager-");
+      const repoDir = yield* makeTempDir("fatma-git-manager-");
       yield* initRepo(repoDir);
       const originDir = yield* createBareRemote();
       const forkDir = yield* createBareRemote();
@@ -1600,7 +2211,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
 
   it.effect("preserves fork upstream tracking when preparing a local PR thread", () =>
     Effect.gen(function* () {
-      const repoDir = yield* makeTempDir("t3code-git-manager-");
+      const repoDir = yield* makeTempDir("fatma-git-manager-");
       yield* initRepo(repoDir);
       const originDir = yield* createBareRemote();
       const forkDir = yield* createBareRemote();
@@ -1653,7 +2264,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
 
   it.effect("derives fork repository identity from PR URL when GitHub omits nameWithOwner", () =>
     Effect.gen(function* () {
-      const repoDir = yield* makeTempDir("t3code-git-manager-");
+      const repoDir = yield* makeTempDir("fatma-git-manager-");
       yield* initRepo(repoDir);
       const originDir = yield* createBareRemote();
       const forkDir = yield* createBareRemote();
@@ -1678,7 +2289,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
           pullRequest: {
             number: 642,
             title: "fix: use commit as the default git action without origin",
-            url: "https://github.com/pingdotgg/t3code/pull/642",
+            url: "https://github.com/pingdotgg/fatma/pull/642",
             baseRefName: "main",
             headRefName: "fix/git-action-default-without-origin",
             state: "open",
@@ -1686,7 +2297,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
             headRepositoryOwnerLogin: "binbandit",
           },
           repositoryCloneUrls: {
-            "binbandit/t3code": {
+            "binbandit/fatma": {
               url: forkDir,
               sshUrl: forkDir,
             },
@@ -1710,7 +2321,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
 
   it.effect("reuses an existing dedicated worktree for the PR head branch", () =>
     Effect.gen(function* () {
-      const repoDir = yield* makeTempDir("t3code-git-manager-");
+      const repoDir = yield* makeTempDir("fatma-git-manager-");
       yield* initRepo(repoDir);
       yield* runGit(repoDir, ["checkout", "-b", "feature/pr-existing-worktree"]);
       fs.writeFileSync(path.join(repoDir, "existing.txt"), "existing\n");
@@ -1750,7 +2361,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
     "does not block fork PR worktree prep when the fork head branch collides with root main",
     () =>
       Effect.gen(function* () {
-        const repoDir = yield* makeTempDir("t3code-git-manager-");
+        const repoDir = yield* makeTempDir("fatma-git-manager-");
         yield* initRepo(repoDir);
         const originDir = yield* createBareRemote();
         const forkDir = yield* createBareRemote();
@@ -1793,7 +2404,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
           mode: "worktree",
         });
 
-        expect(result.branch).toBe("t3code/pr-91/main");
+        expect(result.branch).toBe("fatma/pr-91/main");
         expect(result.worktreePath).not.toBeNull();
         expect((yield* runGit(repoDir, ["branch", "--show-current"])).stdout.trim()).toBe("main");
         expect((yield* runGit(repoDir, ["rev-parse", "main"])).stdout.trim()).toBe(mainBefore);
@@ -1802,7 +2413,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
             "branch",
             "--show-current",
           ])).stdout.trim(),
-        ).toBe("t3code/pr-91/main");
+        ).toBe("fatma/pr-91/main");
       }),
   );
 
@@ -1810,7 +2421,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
     "does not overwrite an existing local main branch when preparing a fork PR worktree",
     () =>
       Effect.gen(function* () {
-        const repoDir = yield* makeTempDir("t3code-git-manager-");
+        const repoDir = yield* makeTempDir("fatma-git-manager-");
         yield* initRepo(repoDir);
         const originDir = yield* createBareRemote();
         const forkDir = yield* createBareRemote();
@@ -1854,7 +2465,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
           mode: "worktree",
         });
 
-        expect(result.branch).toBe("t3code/pr-92/main");
+        expect(result.branch).toBe("fatma/pr-92/main");
         expect((yield* runGit(repoDir, ["rev-parse", "main"])).stdout.trim()).toBe(localMainBefore);
         expect(
           (yield* runGit(result.worktreePath as string, [
@@ -1868,7 +2479,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
 
   it.effect("reuses an existing PR worktree and restores fork upstream tracking", () =>
     Effect.gen(function* () {
-      const repoDir = yield* makeTempDir("t3code-git-manager-");
+      const repoDir = yield* makeTempDir("fatma-git-manager-");
       yield* initRepo(repoDir);
       const originDir = yield* createBareRemote();
       const forkDir = yield* createBareRemote();
@@ -1924,7 +2535,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
 
   it.effect("rejects worktree prep when the PR head branch is checked out in the main repo", () =>
     Effect.gen(function* () {
-      const repoDir = yield* makeTempDir("t3code-git-manager-");
+      const repoDir = yield* makeTempDir("fatma-git-manager-");
       yield* initRepo(repoDir);
       yield* runGit(repoDir, ["checkout", "-b", "feature/pr-root-only"]);
 
@@ -1956,7 +2567,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
 
   it.effect("emits ordered progress events for commit hooks", () =>
     Effect.gen(function* () {
-      const repoDir = yield* makeTempDir("t3code-git-manager-");
+      const repoDir = yield* makeTempDir("fatma-git-manager-");
       yield* initRepo(repoDir);
       fs.writeFileSync(path.join(repoDir, "hooked.txt"), "hooked\n");
       fs.writeFileSync(
@@ -2019,7 +2630,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
 
   it.effect("emits action_failed when a commit hook rejects", () =>
     Effect.gen(function* () {
-      const repoDir = yield* makeTempDir("t3code-git-manager-");
+      const repoDir = yield* makeTempDir("fatma-git-manager-");
       yield* initRepo(repoDir);
       fs.writeFileSync(path.join(repoDir, "hook-failure.txt"), "broken\n");
       fs.writeFileSync(
@@ -2064,6 +2675,73 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
           }),
         ]),
       );
+    }),
+  );
+
+  it.effect("create_pr emits only the PR phase when the branch is already pushed", () =>
+    Effect.gen(function* () {
+      const repoDir = yield* makeTempDir("fatma-git-manager-");
+      yield* initRepo(repoDir);
+      yield* runGit(repoDir, ["checkout", "-b", "feature/pr-only-follow-up"]);
+      const remoteDir = yield* createBareRemote();
+      yield* runGit(repoDir, ["remote", "add", "origin", remoteDir]);
+      fs.writeFileSync(path.join(repoDir, "pr-only.txt"), "pr only\n");
+      yield* runGit(repoDir, ["add", "pr-only.txt"]);
+      yield* runGit(repoDir, ["commit", "-m", "PR only branch"]);
+      yield* runGit(repoDir, ["push", "-u", "origin", "feature/pr-only-follow-up"]);
+
+      const { manager } = yield* makeManager({
+        ghScenario: {
+          prListSequence: [
+            JSON.stringify([]),
+            JSON.stringify([
+              {
+                number: 201,
+                title: "PR only branch",
+                url: "https://github.com/pingdotgg/codething-mvp/pull/201",
+                baseRefName: "main",
+                headRefName: "feature/pr-only-follow-up",
+                state: "OPEN",
+                isCrossRepository: false,
+              },
+            ]),
+          ],
+        },
+      });
+      const events: GitActionProgressEvent[] = [];
+
+      const result = yield* runStackedAction(
+        manager,
+        {
+          cwd: repoDir,
+          action: "create_pr",
+        },
+        {
+          actionId: "action-pr-only",
+          progressReporter: {
+            publish: (event) =>
+              Effect.sync(() => {
+                events.push(event);
+              }),
+          },
+        },
+      );
+
+      expect(result.commit.status).toBe("skipped_not_requested");
+      expect(result.push.status).toBe("skipped_not_requested");
+      expect(result.pr.status).toBe("created");
+      expect(
+        events.filter(
+          (event): event is Extract<GitActionProgressEvent, { kind: "phase_started" }> =>
+            event.kind === "phase_started",
+        ),
+      ).toEqual([
+        expect.objectContaining({
+          kind: "phase_started",
+          phase: "pr",
+          label: "Creating PR...",
+        }),
+      ]);
     }),
   );
 });

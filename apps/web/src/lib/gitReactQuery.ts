@@ -1,6 +1,7 @@
-import type { GitStackedAction } from "@fatma/contracts";
+import { type GitActionProgressEvent, type GitStackedAction } from "@fatma/contracts";
 import { mutationOptions, queryOptions, type QueryClient } from "@tanstack/react-query";
 import { ensureNativeApi } from "../nativeApi";
+import { getWsRpcClient } from "../wsRpcClient";
 
 const GIT_STATUS_STALE_TIME_MS = 5_000;
 const GIT_STATUS_REFETCH_INTERVAL_MS = 15_000;
@@ -50,8 +51,24 @@ export const gitMutationKeys = {
     ["git", "mutation", "generate-commit-message", cwd] as const,
 };
 
-export function invalidateGitQueries(queryClient: QueryClient) {
+export function invalidateGitQueries(queryClient: QueryClient, input?: { cwd?: string | null }) {
+  const cwd = input?.cwd ?? null;
+  if (cwd !== null) {
+    return Promise.all([
+      queryClient.invalidateQueries({ queryKey: gitQueryKeys.status(cwd) }),
+      queryClient.invalidateQueries({ queryKey: gitQueryKeys.branches(cwd) }),
+    ]);
+  }
+
   return queryClient.invalidateQueries({ queryKey: gitQueryKeys.all });
+}
+
+export function invalidateGitStatusQuery(queryClient: QueryClient, cwd: string | null) {
+  if (cwd === null) {
+    return Promise.resolve();
+  }
+
+  return queryClient.invalidateQueries({ queryKey: gitQueryKeys.status(cwd) });
 }
 
 export function gitStatusQueryOptions(cwd: string | null) {
@@ -227,7 +244,6 @@ export function gitCommitMutationOptions(input: { cwd: string | null; queryClien
 export function gitRunStackedActionMutationOptions(input: {
   cwd: string | null;
   queryClient: QueryClient;
-  model?: string | null;
 }) {
   return mutationOptions({
     mutationKey: gitMutationKeys.runStackedAction(input.cwd),
@@ -237,24 +253,27 @@ export function gitRunStackedActionMutationOptions(input: {
       commitMessage,
       featureBranch,
       filePaths,
+      onProgress,
     }: {
       actionId: string;
       action: GitStackedAction;
       commitMessage?: string;
       featureBranch?: boolean;
       filePaths?: string[];
+      onProgress?: (event: GitActionProgressEvent) => void;
     }) => {
-      const api = ensureNativeApi();
       if (!input.cwd) throw new Error("Git action is unavailable.");
-      return api.git.runStackedAction({
-        actionId,
-        cwd: input.cwd,
-        action,
-        ...(commitMessage ? { commitMessage } : {}),
-        ...(featureBranch ? { featureBranch } : {}),
-        ...(filePaths ? { filePaths } : {}),
-        ...(input.model ? { model: input.model } : {}),
-      });
+      return getWsRpcClient().git.runStackedAction(
+        {
+          actionId,
+          cwd: input.cwd,
+          action,
+          ...(commitMessage ? { commitMessage } : {}),
+          ...(featureBranch ? { featureBranch } : {}),
+          ...(filePaths ? { filePaths } : {}),
+        },
+        ...(onProgress ? [{ onProgress }] : []),
+      );
     },
     onSettled: async () => {
       await invalidateGitQueries(input.queryClient);

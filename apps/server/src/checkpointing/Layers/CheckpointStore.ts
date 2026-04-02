@@ -11,13 +11,12 @@
  */
 import { randomUUID } from "node:crypto";
 
-import { Effect, Layer, FileSystem, Path } from "effect";
+import { Effect, Layer, FileSystem, Path, PlatformError } from "effect";
+import { CheckpointRef, GitCommandError } from "@fatma/contracts";
 
 import { CheckpointInvariantError } from "../Errors.ts";
-import { GitCommandError } from "../../git/Errors.ts";
 import { GitService } from "../../git/Services/GitService.ts";
 import { CheckpointStore, type CheckpointStoreShape } from "../Services/CheckpointStore.ts";
-import { CheckpointRef } from "@fatma/contracts";
 
 const makeCheckpointStore = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem;
@@ -86,139 +85,140 @@ const makeCheckpointStore = Effect.gen(function* () {
         Effect.catch(() => Effect.succeed(false)),
       );
 
-  const captureCheckpoint: CheckpointStoreShape["captureCheckpoint"] = (input) =>
-    Effect.gen(function* () {
-      const operation = "CheckpointStore.captureCheckpoint";
+  const captureCheckpoint: CheckpointStoreShape["captureCheckpoint"] = Effect.fn(
+    "captureCheckpoint",
+  )(function* (input) {
+    const operation = "CheckpointStore.captureCheckpoint";
 
-      yield* Effect.acquireUseRelease(
-        fs.makeTempDirectory({ prefix: "fatma-fs-checkpoint-" }),
-        (tempDir) =>
-          Effect.gen(function* () {
-            const tempIndexPath = path.join(tempDir, `index-${randomUUID()}`);
-            const commitEnv: NodeJS.ProcessEnv = {
-              ...process.env,
-              GIT_INDEX_FILE: tempIndexPath,
-              GIT_AUTHOR_NAME: "fatma",
-              GIT_AUTHOR_EMAIL: "fatma@users.noreply.github.com",
-              GIT_COMMITTER_NAME: "fatma",
-              GIT_COMMITTER_EMAIL: "fatma@users.noreply.github.com",
-            };
+    yield* Effect.acquireUseRelease(
+      fs.makeTempDirectory({ prefix: "fatma-fs-checkpoint-" }),
+      Effect.fn("captureCheckpoint.withTempDirectory")(function* (tempDir) {
+        const tempIndexPath = path.join(tempDir, `index-${randomUUID()}`);
+        const commitEnv: NodeJS.ProcessEnv = {
+          ...process.env,
+          GIT_INDEX_FILE: tempIndexPath,
+          GIT_AUTHOR_NAME: "fatma",
+          GIT_AUTHOR_EMAIL: "fatma@users.noreply.github.com",
+          GIT_COMMITTER_NAME: "fatma",
+          GIT_COMMITTER_EMAIL: "fatma@users.noreply.github.com",
+        };
 
-            const headExists = yield* hasHeadCommit(input.cwd);
-            if (headExists) {
-              yield* git.execute({
-                operation,
-                cwd: input.cwd,
-                args: ["read-tree", "HEAD"],
-                env: commitEnv,
-              });
-            }
+        const headExists = yield* hasHeadCommit(input.cwd);
+        if (headExists) {
+          yield* git.execute({
+            operation,
+            cwd: input.cwd,
+            args: ["read-tree", "HEAD"],
+            env: commitEnv,
+          });
+        }
 
-            yield* git.execute({
-              operation,
-              cwd: input.cwd,
-              args: ["add", "-A", "--", "."],
-              env: commitEnv,
-            });
+        yield* git.execute({
+          operation,
+          cwd: input.cwd,
+          args: ["add", "-A", "--", "."],
+          env: commitEnv,
+        });
 
-            const writeTreeResult = yield* git.execute({
-              operation,
-              cwd: input.cwd,
-              args: ["write-tree"],
-              env: commitEnv,
-            });
-            const treeOid = writeTreeResult.stdout.trim();
-            if (treeOid.length === 0) {
-              return yield* new GitCommandError({
-                operation,
-                command: "git write-tree",
-                cwd: input.cwd,
-                detail: "git write-tree returned an empty tree oid.",
-              });
-            }
+        const writeTreeResult = yield* git.execute({
+          operation,
+          cwd: input.cwd,
+          args: ["write-tree"],
+          env: commitEnv,
+        });
+        const treeOid = writeTreeResult.stdout.trim();
+        if (treeOid.length === 0) {
+          return yield* new GitCommandError({
+            operation,
+            command: "git write-tree",
+            cwd: input.cwd,
+            detail: "git write-tree returned an empty tree oid.",
+          });
+        }
 
-            const message = `fatma checkpoint ref=${input.checkpointRef}`;
-            const commitTreeResult = yield* git.execute({
-              operation,
-              cwd: input.cwd,
-              args: ["commit-tree", treeOid, "-m", message],
-              env: commitEnv,
-            });
-            const commitOid = commitTreeResult.stdout.trim();
-            if (commitOid.length === 0) {
-              return yield* new GitCommandError({
-                operation,
-                command: "git commit-tree",
-                cwd: input.cwd,
-                detail: "git commit-tree returned an empty commit oid.",
-              });
-            }
+        const message = `fatma checkpoint ref=${input.checkpointRef}`;
+        const commitTreeResult = yield* git.execute({
+          operation,
+          cwd: input.cwd,
+          args: ["commit-tree", treeOid, "-m", message],
+          env: commitEnv,
+        });
+        const commitOid = commitTreeResult.stdout.trim();
+        if (commitOid.length === 0) {
+          return yield* new GitCommandError({
+            operation,
+            command: "git commit-tree",
+            cwd: input.cwd,
+            detail: "git commit-tree returned an empty commit oid.",
+          });
+        }
 
-            yield* git.execute({
-              operation,
-              cwd: input.cwd,
-              args: ["update-ref", input.checkpointRef, commitOid],
-            });
-          }),
-        (tempDir) => fs.remove(tempDir, { recursive: true }),
-      ).pipe(
-        Effect.catchTags({
-          PlatformError: (error) =>
-            Effect.fail(
-              new CheckpointInvariantError({
-                operation: "CheckpointStore.captureCheckpoint",
-                detail: "Failed to capture checkpoint.",
-                cause: error,
-              }),
-            ),
-        }),
-      );
-    });
+        yield* git.execute({
+          operation,
+          cwd: input.cwd,
+          args: ["update-ref", input.checkpointRef, commitOid],
+        });
+      }),
+      (tempDir) => fs.remove(tempDir, { recursive: true }),
+    ).pipe(
+      Effect.catchTags({
+        PlatformError: (error: PlatformError.PlatformError) =>
+          Effect.fail(
+            new CheckpointInvariantError({
+              operation: "CheckpointStore.captureCheckpoint",
+              detail: "Failed to capture checkpoint.",
+              cause: error,
+            }),
+          ),
+      }),
+    );
+  });
 
   const hasCheckpointRef: CheckpointStoreShape["hasCheckpointRef"] = (input) =>
     resolveCheckpointCommit(input.cwd, input.checkpointRef).pipe(
       Effect.map((commit) => commit !== null),
     );
 
-  const restoreCheckpoint: CheckpointStoreShape["restoreCheckpoint"] = (input) =>
-    Effect.gen(function* () {
-      const operation = "CheckpointStore.restoreCheckpoint";
+  const restoreCheckpoint: CheckpointStoreShape["restoreCheckpoint"] = Effect.fn(
+    "restoreCheckpoint",
+  )(function* (input) {
+    const operation = "CheckpointStore.restoreCheckpoint";
 
-      let commitOid = yield* resolveCheckpointCommit(input.cwd, input.checkpointRef);
+    let commitOid = yield* resolveCheckpointCommit(input.cwd, input.checkpointRef);
 
-      if (!commitOid && input.fallbackToHead === true) {
-        commitOid = yield* resolveHeadCommit(input.cwd);
-      }
+    if (!commitOid && input.fallbackToHead === true) {
+      commitOid = yield* resolveHeadCommit(input.cwd);
+    }
 
-      if (!commitOid) {
-        return false;
-      }
+    if (!commitOid) {
+      return false;
+    }
 
-      yield* git.execute({
-        operation,
-        cwd: input.cwd,
-        args: ["restore", "--source", commitOid, "--worktree", "--staged", "--", "."],
-      });
-      yield* git.execute({
-        operation,
-        cwd: input.cwd,
-        args: ["clean", "-fd", "--", "."],
-      });
-
-      const headExists = yield* hasHeadCommit(input.cwd);
-      if (headExists) {
-        yield* git.execute({
-          operation,
-          cwd: input.cwd,
-          args: ["reset", "--quiet", "--", "."],
-        });
-      }
-
-      return true;
+    yield* git.execute({
+      operation,
+      cwd: input.cwd,
+      args: ["restore", "--source", commitOid, "--worktree", "--staged", "--", "."],
+    });
+    yield* git.execute({
+      operation,
+      cwd: input.cwd,
+      args: ["clean", "-fd", "--", "."],
     });
 
-  const diffCheckpoints: CheckpointStoreShape["diffCheckpoints"] = (input) =>
-    Effect.gen(function* () {
+    const headExists = yield* hasHeadCommit(input.cwd);
+    if (headExists) {
+      yield* git.execute({
+        operation,
+        cwd: input.cwd,
+        args: ["reset", "--quiet", "--", "."],
+      });
+    }
+
+    return true;
+  });
+
+  const diffCheckpoints: CheckpointStoreShape["diffCheckpoints"] = Effect.fn("diffCheckpoints")(
+    function* (input) {
       const operation = "CheckpointStore.diffCheckpoints";
 
       let fromCommitOid = yield* resolveCheckpointCommit(input.cwd, input.fromCheckpointRef);
@@ -247,24 +247,26 @@ const makeCheckpointStore = Effect.gen(function* () {
       });
 
       return result.stdout;
-    });
+    },
+  );
 
-  const deleteCheckpointRefs: CheckpointStoreShape["deleteCheckpointRefs"] = (input) =>
-    Effect.gen(function* () {
-      const operation = "CheckpointStore.deleteCheckpointRefs";
+  const deleteCheckpointRefs: CheckpointStoreShape["deleteCheckpointRefs"] = Effect.fn(
+    "deleteCheckpointRefs",
+  )(function* (input) {
+    const operation = "CheckpointStore.deleteCheckpointRefs";
 
-      yield* Effect.forEach(
-        input.checkpointRefs,
-        (checkpointRef) =>
-          git.execute({
-            operation,
-            cwd: input.cwd,
-            args: ["update-ref", "-d", checkpointRef],
-            allowNonZeroExit: true,
-          }),
-        { discard: true },
-      );
-    });
+    yield* Effect.forEach(
+      input.checkpointRefs,
+      (checkpointRef) =>
+        git.execute({
+          operation,
+          cwd: input.cwd,
+          args: ["update-ref", "-d", checkpointRef],
+          allowNonZeroExit: true,
+        }),
+      { discard: true },
+    );
+  });
 
   return {
     isGitRepository,

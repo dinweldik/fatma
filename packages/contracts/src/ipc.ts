@@ -1,6 +1,6 @@
 import type {
-  GitCheckoutInput,
   GitActionProgressEvent,
+  GitCheckoutInput,
   GitCommitInput,
   GitCommitResult,
   GitCreateBranchInput,
@@ -41,7 +41,16 @@ import type {
   ProjectWriteFileInput,
   ProjectWriteFileResult,
 } from "./project";
-import type { ServerConfig } from "./server";
+import type {
+  ServerConfig,
+  ServerProviderUpdatedPayload,
+  ServerSendTestTelegramNotificationInput,
+  ServerSendTestTelegramNotificationResult,
+  ServerUpdateTelegramNotificationsInput,
+  ServerUpdateTelegramNotificationsResult,
+  ServerUpsertKeybindingInput,
+  ServerUpsertKeybindingResult,
+} from "./server";
 import type {
   TerminalClearInput,
   TerminalCloseInput,
@@ -53,14 +62,6 @@ import type {
   TerminalWriteInput,
 } from "./terminal";
 import type {
-  ServerSendTestTelegramNotificationInput,
-  ServerSendTestTelegramNotificationResult,
-  ServerUpdateTelegramNotificationsInput,
-  ServerUpdateTelegramNotificationsResult,
-  ServerUpsertKeybindingInput,
-  ServerUpsertKeybindingResult,
-} from "./server";
-import type {
   ClientOrchestrationCommand,
   OrchestrationGetFullThreadDiffInput,
   OrchestrationGetFullThreadDiffResult,
@@ -70,11 +71,13 @@ import type {
   OrchestrationReadModel,
 } from "./orchestration";
 import { EditorId } from "./editor";
+import { ServerSettings, ServerSettingsPatch } from "./settings";
 
 export interface ContextMenuItem<T extends string = string> {
   id: T;
   label: string;
   destructive?: boolean;
+  disabled?: boolean;
 }
 
 export type DesktopUpdateStatus =
@@ -118,6 +121,11 @@ export interface DesktopUpdateActionResult {
   state: DesktopUpdateState;
 }
 
+export interface DesktopUpdateCheckResult {
+  checked: boolean;
+  state: DesktopUpdateState;
+}
+
 export interface DesktopBridge {
   getWsUrl: () => string | null;
   pickFolder: () => Promise<string | null>;
@@ -130,6 +138,7 @@ export interface DesktopBridge {
   openExternal: (url: string) => Promise<boolean>;
   onMenuAction: (listener: (action: string) => void) => () => void;
   getUpdateState: () => Promise<DesktopUpdateState>;
+  checkForUpdate: () => Promise<DesktopUpdateCheckResult>;
   downloadUpdate: () => Promise<DesktopUpdateActionResult>;
   installUpdate: () => Promise<DesktopUpdateActionResult>;
   onUpdateState: (listener: (state: DesktopUpdateState) => void) => () => void;
@@ -141,12 +150,12 @@ export interface NativeApi {
     confirm: (message: string) => Promise<boolean>;
   };
   terminal: {
-    open: (input: TerminalOpenInput) => Promise<TerminalSessionSnapshot>;
-    write: (input: TerminalWriteInput) => Promise<void>;
-    resize: (input: TerminalResizeInput) => Promise<void>;
-    clear: (input: TerminalClearInput) => Promise<void>;
-    restart: (input: TerminalRestartInput) => Promise<TerminalSessionSnapshot>;
-    close: (input: TerminalCloseInput) => Promise<void>;
+    open: (input: typeof TerminalOpenInput.Encoded) => Promise<TerminalSessionSnapshot>;
+    write: (input: typeof TerminalWriteInput.Encoded) => Promise<void>;
+    resize: (input: typeof TerminalResizeInput.Encoded) => Promise<void>;
+    clear: (input: typeof TerminalClearInput.Encoded) => Promise<void>;
+    restart: (input: typeof TerminalRestartInput.Encoded) => Promise<TerminalSessionSnapshot>;
+    close: (input: typeof TerminalCloseInput.Encoded) => Promise<void>;
     onEvent: (callback: (event: TerminalEvent) => void) => () => void;
   };
   projects: {
@@ -196,7 +205,10 @@ export interface NativeApi {
   };
   server: {
     getConfig: () => Promise<ServerConfig>;
+    refreshProviders: () => Promise<ServerProviderUpdatedPayload>;
     upsertKeybinding: (input: ServerUpsertKeybindingInput) => Promise<ServerUpsertKeybindingResult>;
+    getSettings: () => Promise<ServerSettings>;
+    updateSettings: (patch: ServerSettingsPatch) => Promise<ServerSettings>;
     updateTelegramNotifications: (
       input: ServerUpdateTelegramNotificationsInput,
     ) => Promise<ServerUpdateTelegramNotificationsResult>;

@@ -8,9 +8,10 @@
  */
 import { ServiceMap } from "effect";
 import type { Effect } from "effect";
-import type { ChatAttachment } from "@fatma/contracts";
+import type { ChatAttachment, ModelSelection, TextGenerationError } from "@fatma/contracts";
 
-import type { TextGenerationError } from "../Errors.ts";
+/** Providers that support git text generation (commit messages, PR content, branch names). */
+export type TextGenerationProvider = "codex" | "claudeAgent";
 
 export interface CommitMessageGenerationInput {
   cwd: string;
@@ -19,8 +20,8 @@ export interface CommitMessageGenerationInput {
   stagedPatch: string;
   /** When true, the model also returns a semantic branch name for the change. */
   includeBranch?: boolean;
-  /** Model to use for generation. Defaults to gpt-5.4-mini if not specified. */
-  model?: string;
+  /** What model and provider to use for generation. */
+  modelSelection: ModelSelection;
 }
 
 export interface CommitMessageGenerationResult {
@@ -37,8 +38,8 @@ export interface PrContentGenerationInput {
   commitSummary: string;
   diffSummary: string;
   diffPatch: string;
-  /** Model to use for generation. Defaults to gpt-5.4-mini if not specified. */
-  model?: string;
+  /** What model and provider to use for generation. */
+  modelSelection: ModelSelection;
 }
 
 export interface PrContentGenerationResult {
@@ -50,12 +51,24 @@ export interface BranchNameGenerationInput {
   cwd: string;
   message: string;
   attachments?: ReadonlyArray<ChatAttachment> | undefined;
-  /** Model to use for generation. Defaults to gpt-5.4-mini if not specified. */
-  model?: string;
+  /** What model and provider to use for generation. */
+  modelSelection: ModelSelection;
 }
 
 export interface BranchNameGenerationResult {
   branch: string;
+}
+
+export interface ThreadTitleGenerationInput {
+  cwd: string;
+  message: string;
+  attachments?: ReadonlyArray<ChatAttachment> | undefined;
+  /** What model and provider to use for generation. */
+  modelSelection: ModelSelection;
+}
+
+export interface ThreadTitleGenerationResult {
+  title: string;
 }
 
 export interface TextGenerationService {
@@ -64,6 +77,7 @@ export interface TextGenerationService {
   ): Promise<CommitMessageGenerationResult>;
   generatePrContent(input: PrContentGenerationInput): Promise<PrContentGenerationResult>;
   generateBranchName(input: BranchNameGenerationInput): Promise<BranchNameGenerationResult>;
+  generateThreadTitle(input: ThreadTitleGenerationInput): Promise<ThreadTitleGenerationResult>;
 }
 
 /**
@@ -90,6 +104,13 @@ export interface TextGenerationShape {
   readonly generateBranchName: (
     input: BranchNameGenerationInput,
   ) => Effect.Effect<BranchNameGenerationResult, TextGenerationError>;
+
+  /**
+   * Generate a concise thread title from a user's first message.
+   */
+  readonly generateThreadTitle: (
+    input: ThreadTitleGenerationInput,
+  ) => Effect.Effect<ThreadTitleGenerationResult, TextGenerationError>;
 }
 
 /**

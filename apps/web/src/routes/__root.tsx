@@ -1,45 +1,48 @@
-import { ThreadId } from "@fatma/contracts";
+import { OrchestrationEvent, ThreadId, type ServerLifecycleWelcomePayload } from "@fatma/contracts";
 import {
   Outlet,
   createRootRouteWithContext,
   type ErrorComponentProps,
   useNavigate,
-  useRouterState,
+  useLocation,
 } from "@tanstack/react-router";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useRef } from "react";
 import { QueryClient, useQueryClient } from "@tanstack/react-query";
 import { Throttler } from "@tanstack/react-pacer";
 
-import { subscribeToAppResume } from "../appResumeSignals";
-import { parseAppRouteSearch } from "../appRouteSearch";
 import { APP_DISPLAY_NAME } from "../branding";
+import { AppSidebarLayout } from "../components/AppSidebarLayout";
 import { Button } from "../components/ui/button";
 import { AnchoredToastProvider, ToastProvider, toastManager } from "../components/ui/toast";
 import { resolveAndPersistPreferredEditor } from "../editorPreferences";
-import { serverConfigQueryOptions, serverQueryKeys } from "../lib/serverReactQuery";
 import { readNativeApi } from "../nativeApi";
-import { useComposerDraftStore } from "../composerDraftStore";
-import { parseProjectShellRuntimeThreadId } from "../projectShells";
-import { useProjectShellStore } from "../projectShellStore";
+import {
+  getServerConfigUpdatedNotification,
+  type ServerConfigUpdateSource,
+  useServerConfig,
+  useServerConfigUpdatedSubscription,
+  useServerWelcomeSubscription,
+} from "../rpc/serverState";
+import { ServerStateBootstrap } from "../rpc/serverStateBootstrap";
+import {
+  clearPromotedDraftThread,
+  clearPromotedDraftThreads,
+  useComposerDraftStore,
+} from "../composerDraftStore";
 import { useStore } from "../store";
-import { preferredTerminalEditor } from "../terminal-links";
+import { useUiStateStore } from "../uiStateStore";
 import { useTerminalStateStore } from "../terminalStateStore";
 import { terminalRunningSubprocessFromEvent } from "../terminalActivity";
-import {
-  getTransportState,
-  onServerConfigUpdated,
-  onServerWelcome,
-  onTransportReconnected,
-  onTransportStateChanged,
-} from "../wsNativeApi";
+import { migrateLocalSettingsToServer } from "../hooks/useSettings";
 import { providerQueryKeys } from "../lib/providerReactQuery";
 import { projectQueryKeys } from "../lib/projectReactQuery";
-import { applyOrchestrationEventToAppState } from "../orchestrationEventReducer";
+import { collectActiveTerminalThreadIds } from "../lib/terminalStateCleanup";
+import { deriveOrchestrationBatchEffects } from "../orchestrationEventEffects";
+import { createOrchestrationRecoveryCoordinator } from "../orchestrationRecovery";
 
 export const Route = createRootRouteWithContext<{
   queryClient: QueryClient;
 }>()({
-  validateSearch: (search) => parseAppRouteSearch(search),
   component: RootRouteView,
   errorComponent: RootRouteErrorView,
   head: () => ({
@@ -61,14 +64,18 @@ function RootRouteView() {
   }
 
   return (
-    <ToastProvider>
-      <AnchoredToastProvider>
-        <EventRouter />
-        <TransportStateBanner />
-        <DesktopProjectBootstrap />
-        <Outlet />
-      </AnchoredToastProvider>
-    </ToastProvider>
+    <>
+      <ServerStateBootstrap />
+      <ToastProvider>
+        <AnchoredToastProvider>
+          <EventRouter />
+          <DesktopProjectBootstrap />
+          <AppSidebarLayout>
+            <Outlet />
+          </AppSidebarLayout>
+        </AnchoredToastProvider>
+      </ToastProvider>
+    </>
   );
 }
 
@@ -143,179 +150,112 @@ function errorDetails(error: unknown): string {
   }
 }
 
+function coalesceOrchestrationUiEvents(
+  events: ReadonlyArray<OrchestrationEvent>,
+): OrchestrationEvent[] {
+  if (events.length < 2) {
+    return [...events];
+  }
+
+  const coalesced: OrchestrationEvent[] = [];
+  for (const event of events) {
+    const previous = coalesced.at(-1);
+    if (
+      previous?.type === "thread.message-sent" &&
+      event.type === "thread.message-sent" &&
+      previous.payload.threadId === event.payload.threadId &&
+      previous.payload.messageId === event.payload.messageId
+    ) {
+      coalesced[coalesced.length - 1] = {
+        ...event,
+        payload: {
+          ...event.payload,
+          attachments: event.payload.attachments ?? previous.payload.attachments,
+          createdAt: previous.payload.createdAt,
+          text:
+            !event.payload.streaming && event.payload.text.length > 0
+              ? event.payload.text
+              : previous.payload.text + event.payload.text,
+        },
+      };
+      continue;
+    }
+
+    coalesced.push(event);
+  }
+
+  return coalesced;
+}
+
 function EventRouter() {
+  const applyOrchestrationEvents = useStore((store) => store.applyOrchestrationEvents);
   const syncServerReadModel = useStore((store) => store.syncServerReadModel);
-  const setProjectExpanded = useStore((store) => store.setProjectExpanded);
-  const removeOrphanedProjectShellStates = useProjectShellStore(
-    (store) => store.removeOrphanedProjectShellStates,
+  const setProjectExpanded = useUiStateStore((store) => store.setProjectExpanded);
+  const syncProjects = useUiStateStore((store) => store.syncProjects);
+  const syncThreads = useUiStateStore((store) => store.syncThreads);
+  const clearThreadUi = useUiStateStore((store) => store.clearThreadUi);
+  const removeTerminalState = useTerminalStateStore((store) => store.removeTerminalState);
+  const removeOrphanedTerminalStates = useTerminalStateStore(
+    (store) => store.removeOrphanedTerminalStates,
   );
   const queryClient = useQueryClient();
   const navigate = useNavigate();
-  const pathname = useRouterState({ select: (state) => state.location.pathname });
+  const pathname = useLocation({ select: (loc) => loc.pathname });
   const pathnameRef = useRef(pathname);
   const handledBootstrapThreadIdRef = useRef<string | null>(null);
+  const seenServerConfigUpdateIdRef = useRef(getServerConfigUpdatedNotification()?.id ?? 0);
+  const disposedRef = useRef(false);
+  const bootstrapFromSnapshotRef = useRef<() => Promise<void>>(async () => undefined);
+  const serverConfig = useServerConfig();
 
   pathnameRef.current = pathname;
 
-  useEffect(() => {
-    const api = readNativeApi();
-    if (!api) return;
-    let disposed = false;
-    let latestSequence = 0;
-    let syncing = false;
-    let pending = false;
-    let needsProviderInvalidation = false;
-    let pendingSnapshotSync = false;
-
-    const reconcileProjectShellState = () => {
-      const draftThreadIds = Object.keys(
-        useComposerDraftStore.getState().draftThreadsByThreadId,
-      ) as ThreadId[];
-      const activeProjectIds = new Set(useStore.getState().projects.map((project) => project.id));
-      for (const draftThreadId of draftThreadIds) {
-        const draftThread = useComposerDraftStore.getState().draftThreadsByThreadId[draftThreadId];
-        if (!draftThread) continue;
-        activeProjectIds.add(draftThread.projectId);
-      }
-      removeOrphanedProjectShellStates(activeProjectIds);
-    };
-
-    const flushSnapshotSync = async (): Promise<void> => {
-      const snapshot = await api.orchestration.getSnapshot();
-      if (disposed) return;
-      latestSequence = Math.max(latestSequence, snapshot.snapshotSequence);
-      syncServerReadModel(snapshot);
-      reconcileProjectShellState();
-      if (pending) {
-        pending = false;
-        await flushSnapshotSync();
-      }
-    };
-
-    const syncSnapshot = async () => {
-      if (syncing) {
-        pending = true;
+  const handleWelcome = useEffectEvent((payload: ServerLifecycleWelcomePayload) => {
+    migrateLocalSettingsToServer();
+    void (async () => {
+      await bootstrapFromSnapshotRef.current();
+      if (disposedRef.current) {
         return;
       }
-      syncing = true;
-      pending = false;
-      try {
-        await flushSnapshotSync();
-      } catch {
-        // Keep prior state and wait for next domain event to trigger a resync.
-      }
-      syncing = false;
-    };
 
-    const domainEventFlushThrottler = new Throttler(
-      () => {
-        if (needsProviderInvalidation) {
-          needsProviderInvalidation = false;
-          void queryClient.invalidateQueries({ queryKey: providerQueryKeys.all });
-          // Invalidate workspace entry queries so the @-mention file picker
-          // reflects files created, deleted, or restored during this turn.
-          void queryClient.invalidateQueries({ queryKey: projectQueryKeys.all });
-        }
-        if (pendingSnapshotSync) {
-          pendingSnapshotSync = false;
-          void syncSnapshot();
-        }
-      },
-      {
-        wait: 100,
-        leading: false,
-        trailing: true,
-      },
-    );
-
-    const unsubDomainEvent = api.orchestration.onDomainEvent((event) => {
-      if (event.sequence <= latestSequence) {
+      if (!payload.bootstrapProjectId || !payload.bootstrapThreadId) {
         return;
       }
-      const missedSequence = latestSequence > 0 && event.sequence > latestSequence + 1;
-      latestSequence = event.sequence;
-      if (event.type === "thread.turn-diff-completed" || event.type === "thread.reverted") {
-        needsProviderInvalidation = true;
-      }
-      if (missedSequence) {
-        pendingSnapshotSync = true;
-        domainEventFlushThrottler.maybeExecute();
-        return;
-      }
-      try {
-        const next = applyOrchestrationEventToAppState(useStore.getState(), event);
-        if (next.handled) {
-          useStore.setState(next.state);
-          reconcileProjectShellState();
-          domainEventFlushThrottler.maybeExecute();
-          return;
-        }
-      } catch {
-        // Fall back to a full snapshot sync below.
-      }
-      pendingSnapshotSync = true;
-      domainEventFlushThrottler.maybeExecute();
-    });
-    const unsubAppResume = subscribeToAppResume(() => {
-      needsProviderInvalidation = true;
-      pendingSnapshotSync = true;
-      domainEventFlushThrottler.maybeExecute();
-    });
-    const unsubTransportReconnected = onTransportReconnected(() => {
-      needsProviderInvalidation = true;
-      pendingSnapshotSync = true;
-      domainEventFlushThrottler.maybeExecute();
-    });
-    const unsubTerminalEvent = api.terminal.onEvent((event) => {
-      const hasRunningSubprocess = terminalRunningSubprocessFromEvent(event);
-      if (hasRunningSubprocess === null) {
-        return;
-      }
-      const parsedProjectShellThreadId = parseProjectShellRuntimeThreadId(event.threadId);
-      if (!parsedProjectShellThreadId) {
-        return;
-      }
-      useProjectShellStore
-        .getState()
-        .setShellActivity(
-          parsedProjectShellThreadId.projectId,
-          parsedProjectShellThreadId.shellId,
-          hasRunningSubprocess,
-        );
-    });
-    const unsubWelcome = onServerWelcome((payload) => {
-      void (async () => {
-        await syncSnapshot();
-        if (disposed) {
-          return;
-        }
+      setProjectExpanded(payload.bootstrapProjectId, true);
 
-        if (!payload.bootstrapProjectId || !payload.bootstrapThreadId) {
-          return;
-        }
-        setProjectExpanded(payload.bootstrapProjectId, true);
+      if (pathnameRef.current !== "/") {
+        return;
+      }
+      if (handledBootstrapThreadIdRef.current === payload.bootstrapThreadId) {
+        return;
+      }
+      await navigate({
+        to: "/$threadId",
+        params: { threadId: payload.bootstrapThreadId },
+        replace: true,
+      });
+      handledBootstrapThreadIdRef.current = payload.bootstrapThreadId;
+    })().catch(() => undefined);
+  });
 
-        if (pathnameRef.current !== "/") {
-          return;
-        }
-        if (handledBootstrapThreadIdRef.current === payload.bootstrapThreadId) {
-          return;
-        }
-        await navigate({
-          to: "/$threadId",
-          params: { threadId: payload.bootstrapThreadId },
-          replace: true,
-        });
-        handledBootstrapThreadIdRef.current = payload.bootstrapThreadId;
-      })().catch(() => undefined);
-    });
-    // onServerConfigUpdated replays the latest cached value synchronously
-    // during subscribe. Skip the toast for that replay so effect re-runs
-    // don't produce duplicate toasts.
-    let subscribed = false;
-    const unsubServerConfigUpdated = onServerConfigUpdated((payload) => {
-      void queryClient.invalidateQueries({ queryKey: serverQueryKeys.config() });
-      if (!subscribed) return;
+  const handleServerConfigUpdated = useEffectEvent(
+    ({
+      id,
+      payload,
+      source,
+    }: {
+      readonly id: number;
+      readonly payload: import("@fatma/contracts").ServerConfigUpdatedPayload;
+      readonly source: ServerConfigUpdateSource;
+    }) => {
+      if (id <= seenServerConfigUpdateIdRef.current) {
+        return;
+      }
+      seenServerConfigUpdateIdRef.current = id;
+      if (source !== "keybindingsUpdated") {
+        return;
+      }
+
       const issue = payload.issues.find((entry) => entry.kind.startsWith("keybindings."));
       if (!issue) {
         toastManager.add({
@@ -333,8 +273,12 @@ function EventRouter() {
         actionProps: {
           children: "Open keybindings.json",
           onClick: () => {
-            void queryClient
-              .ensureQueryData(serverConfigQueryOptions())
+            const api = readNativeApi();
+            if (!api) {
+              return;
+            }
+
+            void Promise.resolve(serverConfig ?? api.server.getConfig())
               .then((config) => {
                 const editor = resolveAndPersistPreferredEditor(config.availableEditors);
                 if (!editor) {
@@ -353,50 +297,226 @@ function EventRouter() {
           },
         },
       });
+    },
+  );
+
+  useEffect(() => {
+    const api = readNativeApi();
+    if (!api) return;
+    let disposed = false;
+    disposedRef.current = false;
+    const recovery = createOrchestrationRecoveryCoordinator();
+    let needsProviderInvalidation = false;
+    const pendingDomainEvents: OrchestrationEvent[] = [];
+    let flushPendingDomainEventsScheduled = false;
+
+    const reconcileSnapshotDerivedState = () => {
+      const threads = useStore.getState().threads;
+      const projects = useStore.getState().projects;
+      syncProjects(projects.map((project) => ({ id: project.id, cwd: project.cwd })));
+      syncThreads(
+        threads.map((thread) => ({
+          id: thread.id,
+          seedVisitedAt: thread.updatedAt ?? thread.createdAt,
+        })),
+      );
+      clearPromotedDraftThreads(threads.map((thread) => thread.id));
+      const draftThreadIds = Object.keys(
+        useComposerDraftStore.getState().draftThreadsByThreadId,
+      ) as ThreadId[];
+      const activeThreadIds = collectActiveTerminalThreadIds({
+        snapshotThreads: threads.map((thread) => ({ id: thread.id, deletedAt: null })),
+        draftThreadIds,
+      });
+      removeOrphanedTerminalStates(activeThreadIds);
+    };
+
+    const queryInvalidationThrottler = new Throttler(
+      () => {
+        if (!needsProviderInvalidation) {
+          return;
+        }
+        needsProviderInvalidation = false;
+        void queryClient.invalidateQueries({ queryKey: providerQueryKeys.all });
+        // Invalidate workspace entry queries so the @-mention file picker
+        // reflects files created, deleted, or restored during this turn.
+        void queryClient.invalidateQueries({ queryKey: projectQueryKeys.all });
+      },
+      {
+        wait: 100,
+        leading: false,
+        trailing: true,
+      },
+    );
+
+    const applyEventBatch = (events: ReadonlyArray<OrchestrationEvent>) => {
+      const nextEvents = recovery.markEventBatchApplied(events);
+      if (nextEvents.length === 0) {
+        return;
+      }
+
+      const batchEffects = deriveOrchestrationBatchEffects(nextEvents);
+      const uiEvents = coalesceOrchestrationUiEvents(nextEvents);
+      const needsProjectUiSync = nextEvents.some(
+        (event) =>
+          event.type === "project.created" ||
+          event.type === "project.meta-updated" ||
+          event.type === "project.deleted",
+      );
+
+      if (batchEffects.needsProviderInvalidation) {
+        needsProviderInvalidation = true;
+        void queryInvalidationThrottler.maybeExecute();
+      }
+
+      applyOrchestrationEvents(uiEvents);
+      if (needsProjectUiSync) {
+        const projects = useStore.getState().projects;
+        syncProjects(projects.map((project) => ({ id: project.id, cwd: project.cwd })));
+      }
+      const needsThreadUiSync = nextEvents.some(
+        (event) => event.type === "thread.created" || event.type === "thread.deleted",
+      );
+      if (needsThreadUiSync) {
+        const threads = useStore.getState().threads;
+        syncThreads(
+          threads.map((thread) => ({
+            id: thread.id,
+            seedVisitedAt: thread.updatedAt ?? thread.createdAt,
+          })),
+        );
+      }
+      const draftStore = useComposerDraftStore.getState();
+      for (const threadId of batchEffects.clearPromotedDraftThreadIds) {
+        clearPromotedDraftThread(threadId);
+      }
+      for (const threadId of batchEffects.clearDeletedThreadIds) {
+        draftStore.clearDraftThread(threadId);
+        clearThreadUi(threadId);
+      }
+      for (const threadId of batchEffects.removeTerminalStateThreadIds) {
+        removeTerminalState(threadId);
+      }
+    };
+    const flushPendingDomainEvents = () => {
+      flushPendingDomainEventsScheduled = false;
+      if (disposed || pendingDomainEvents.length === 0) {
+        return;
+      }
+
+      const events = pendingDomainEvents.splice(0, pendingDomainEvents.length);
+      applyEventBatch(events);
+    };
+    const schedulePendingDomainEventFlush = () => {
+      if (flushPendingDomainEventsScheduled) {
+        return;
+      }
+
+      flushPendingDomainEventsScheduled = true;
+      queueMicrotask(flushPendingDomainEvents);
+    };
+
+    const recoverFromSequenceGap = async (): Promise<void> => {
+      if (!recovery.beginReplayRecovery("sequence-gap")) {
+        return;
+      }
+
+      try {
+        const events = await api.orchestration.replayEvents(recovery.getState().latestSequence);
+        if (!disposed) {
+          applyEventBatch(events);
+        }
+      } catch {
+        recovery.failReplayRecovery();
+        void fallbackToSnapshotRecovery();
+        return;
+      }
+
+      if (!disposed && recovery.completeReplayRecovery()) {
+        void recoverFromSequenceGap();
+      }
+    };
+
+    const runSnapshotRecovery = async (reason: "bootstrap" | "replay-failed"): Promise<void> => {
+      if (!recovery.beginSnapshotRecovery(reason)) {
+        return;
+      }
+
+      try {
+        const snapshot = await api.orchestration.getSnapshot();
+        if (!disposed) {
+          syncServerReadModel(snapshot);
+          reconcileSnapshotDerivedState();
+          if (recovery.completeSnapshotRecovery(snapshot.snapshotSequence)) {
+            void recoverFromSequenceGap();
+          }
+        }
+      } catch {
+        // Keep prior state and wait for welcome or a later replay attempt.
+        recovery.failSnapshotRecovery();
+      }
+    };
+
+    const bootstrapFromSnapshot = async (): Promise<void> => {
+      await runSnapshotRecovery("bootstrap");
+    };
+    bootstrapFromSnapshotRef.current = bootstrapFromSnapshot;
+
+    const fallbackToSnapshotRecovery = async (): Promise<void> => {
+      await runSnapshotRecovery("replay-failed");
+    };
+    const unsubDomainEvent = api.orchestration.onDomainEvent((event) => {
+      const action = recovery.classifyDomainEvent(event.sequence);
+      if (action === "apply") {
+        pendingDomainEvents.push(event);
+        schedulePendingDomainEventFlush();
+        return;
+      }
+      if (action === "recover") {
+        flushPendingDomainEvents();
+        void recoverFromSequenceGap();
+      }
     });
-    subscribed = true;
+    const unsubTerminalEvent = api.terminal.onEvent((event) => {
+      const hasRunningSubprocess = terminalRunningSubprocessFromEvent(event);
+      if (hasRunningSubprocess === null) {
+        return;
+      }
+      useTerminalStateStore
+        .getState()
+        .setTerminalActivity(
+          ThreadId.makeUnsafe(event.threadId),
+          event.terminalId,
+          hasRunningSubprocess,
+        );
+    });
     return () => {
       disposed = true;
+      disposedRef.current = true;
       needsProviderInvalidation = false;
-      domainEventFlushThrottler.cancel();
+      flushPendingDomainEventsScheduled = false;
+      pendingDomainEvents.length = 0;
+      queryInvalidationThrottler.cancel();
       unsubDomainEvent();
-      unsubAppResume();
-      unsubTransportReconnected();
       unsubTerminalEvent();
-      unsubWelcome();
-      unsubServerConfigUpdated();
     };
   }, [
+    applyOrchestrationEvents,
     navigate,
     queryClient,
-    removeOrphanedProjectShellStates,
+    removeTerminalState,
+    removeOrphanedTerminalStates,
+    clearThreadUi,
     setProjectExpanded,
+    syncProjects,
     syncServerReadModel,
+    syncThreads,
   ]);
 
+  useServerWelcomeSubscription(handleWelcome);
+  useServerConfigUpdatedSubscription(handleServerConfigUpdated);
+
   return null;
-}
-
-function TransportStateBanner() {
-  const [transportState, setTransportState] = useState(getTransportState);
-
-  useEffect(
-    () =>
-      onTransportStateChanged((nextState) => setTransportState(nextState), { replayCurrent: true }),
-    [],
-  );
-
-  if (transportState !== "reconnecting") {
-    return null;
-  }
-
-  return (
-    <div className="pointer-events-none fixed inset-x-0 top-[calc(var(--safe-area-inset-top)+0.75rem)] z-50 flex justify-center px-3">
-      <div className="rounded-full border border-amber-500/30 bg-amber-500/12 px-3 py-1.5 text-xs font-medium text-amber-950 shadow-lg backdrop-blur dark:text-amber-100">
-        Reconnecting live updates...
-      </div>
-    </div>
-  );
 }
 
 function DesktopProjectBootstrap() {

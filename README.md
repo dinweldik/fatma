@@ -21,10 +21,16 @@ That setup also works well beyond your laptop. You can run fatma on your home se
 
 When Codex finishes a task or gets blocked and needs input to continue, fatma can send Telegram notifications so you do not need to keep the UI open the whole time.
 
-## How to use
+## Installation
 
 > [!WARNING]
-> You need to have [Codex CLI](https://github.com/openai/codex) installed and authorized for fatma to work.
+> fatma currently supports Codex and Claude.
+> Install and authenticate at least one provider before use:
+>
+> - Codex: install [Codex CLI](https://github.com/openai/codex) and run `codex login`
+> - Claude: install Claude Code and run `claude auth login`
+
+### Run without installing
 
 ```bash
 npx fatma-app

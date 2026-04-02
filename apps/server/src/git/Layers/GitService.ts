@@ -8,7 +8,7 @@
  */
 import { Effect, Layer, Option, Schema, Stream } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
-import { GitCommandError } from "../Errors.ts";
+import { GitCommandError } from "@fatma/contracts";
 import {
   ExecuteGitInput,
   ExecuteGitResult,

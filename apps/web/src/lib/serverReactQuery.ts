@@ -1,5 +1,6 @@
 import { queryOptions } from "@tanstack/react-query";
-import { ensureNativeApi } from "~/nativeApi";
+
+import { ensureNativeApi } from "../nativeApi";
 
 export const serverQueryKeys = {
   all: ["server"] as const,
@@ -9,10 +10,8 @@ export const serverQueryKeys = {
 export function serverConfigQueryOptions() {
   return queryOptions({
     queryKey: serverQueryKeys.config(),
-    queryFn: async () => {
-      const api = ensureNativeApi();
-      return api.server.getConfig();
-    },
+    queryFn: () => ensureNativeApi().server.getConfig(),
     staleTime: Infinity,
+    refetchOnMount: "always",
   });
 }

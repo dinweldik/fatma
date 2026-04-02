@@ -4,11 +4,11 @@ import {
   type OrchestrationGetFullThreadDiffResult,
   type OrchestrationGetTurnDiffResult as OrchestrationGetTurnDiffResultType,
 } from "@fatma/contracts";
-import { Effect, Layer, Schema } from "effect";
+import { Effect, Layer, Option, Schema } from "effect";
 
 import { ProjectionSnapshotQuery } from "../../orchestration/Services/ProjectionSnapshotQuery.ts";
 import { CheckpointInvariantError, CheckpointUnavailableError } from "../Errors.ts";
-import { checkpointRefForThreadTurn, resolveThreadWorkspaceCwd } from "../Utils.ts";
+import { checkpointRefForThreadTurn } from "../Utils.ts";
 import { CheckpointStore } from "../Services/CheckpointStore.ts";
 import {
   CheckpointDiffQuery,
@@ -21,8 +21,8 @@ const make = Effect.gen(function* () {
   const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
   const checkpointStore = yield* CheckpointStore;
 
-  const getTurnDiff: CheckpointDiffQueryShape["getTurnDiff"] = (input) =>
-    Effect.gen(function* () {
+  const getTurnDiff: CheckpointDiffQueryShape["getTurnDiff"] = Effect.fn("getTurnDiff")(
+    function* (input) {
       const operation = "CheckpointDiffQuery.getTurnDiff";
 
       if (input.fromTurnCount === input.toTurnCount) {
@@ -41,16 +41,17 @@ const make = Effect.gen(function* () {
         return emptyDiff;
       }
 
-      const snapshot = yield* projectionSnapshotQuery.getSnapshot();
-      const thread = snapshot.threads.find((entry) => entry.id === input.threadId);
-      if (!thread) {
+      const threadContext = yield* projectionSnapshotQuery.getThreadCheckpointContext(
+        input.threadId,
+      );
+      if (Option.isNone(threadContext)) {
         return yield* new CheckpointInvariantError({
           operation,
           detail: `Thread '${input.threadId}' not found.`,
         });
       }
 
-      const maxTurnCount = thread.checkpoints.reduce(
+      const maxTurnCount = threadContext.value.checkpoints.reduce(
         (max, checkpoint) => Math.max(max, checkpoint.checkpointTurnCount),
         0,
       );
@@ -62,10 +63,7 @@ const make = Effect.gen(function* () {
         });
       }
 
-      const workspaceCwd = resolveThreadWorkspaceCwd({
-        thread,
-        projects: snapshot.projects,
-      });
+      const workspaceCwd = threadContext.value.worktreePath ?? threadContext.value.workspaceRoot;
       if (!workspaceCwd) {
         return yield* new CheckpointInvariantError({
           operation,
@@ -73,8 +71,13 @@ const make = Effect.gen(function* () {
         });
       }
 
-      const fromCheckpointRef = checkpointRefForThreadTurn(input.threadId, input.fromTurnCount);
-      const toCheckpointRef = checkpointRefForThreadTurn(input.threadId, input.toTurnCount);
+      const resolveCheckpointRef = (turnCount: number) =>
+        threadContext.value.checkpoints.find(
+          (checkpoint) => checkpoint.checkpointTurnCount === turnCount,
+        )?.checkpointRef ?? checkpointRefForThreadTurn(input.threadId, turnCount);
+
+      const fromCheckpointRef = resolveCheckpointRef(input.fromTurnCount);
+      const toCheckpointRef = resolveCheckpointRef(input.toTurnCount);
 
       const [fromExists, toExists] = yield* Effect.all(
         [
@@ -127,7 +130,8 @@ const make = Effect.gen(function* () {
       }
 
       return turnDiff;
-    });
+    },
+  );
 
   const getFullThreadDiff: CheckpointDiffQueryShape["getFullThreadDiff"] = (
     input: OrchestrationGetFullThreadDiffInput,
