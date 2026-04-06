@@ -12,9 +12,9 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as ChatRouteImport } from './routes/_chat'
 import { Route as ChatIndexRouteImport } from './routes/_chat.index'
-import { Route as ChatProjectsRouteImport } from './routes/_chat.projects'
 import { Route as SettingsGeneralRouteImport } from './routes/settings.general'
 import { Route as SettingsArchivedRouteImport } from './routes/settings.archived'
+import { Route as ChatProjectsRouteImport } from './routes/_chat.projects'
 import { Route as ChatThreadIdRouteImport } from './routes/_chat.$threadId'
 import { Route as ChatSourceControlProjectIdRouteImport } from './routes/_chat.source-control.$projectId'
 import { Route as ChatShellsProjectIdRouteImport } from './routes/_chat.shells.$projectId'
@@ -90,13 +90,13 @@ export interface FileRoutesByFullPath {
   '/settings': typeof SettingsRouteWithChildren
   '/$threadId': typeof ChatThreadIdRoute
   '/projects': typeof ChatProjectsRoute
+  '/settings/archived': typeof SettingsArchivedRoute
+  '/settings/general': typeof SettingsGeneralRoute
   '/files/$projectId': typeof ChatFilesProjectIdRoute
   '/shells/$projectId': typeof ChatShellsProjectIdRouteWithChildren
   '/source-control/$projectId': typeof ChatSourceControlProjectIdRoute
   '/shells/$projectId/$shellId': typeof ChatShellsProjectIdShellIdRoute
   '/shells/$projectId/': typeof ChatShellsProjectIdIndexRoute
-  '/settings/archived': typeof SettingsArchivedRoute
-  '/settings/general': typeof SettingsGeneralRoute
 }
 export interface FileRoutesByTo {
   '/settings': typeof SettingsRouteWithChildren
@@ -129,16 +129,9 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/settings'
     | '/$threadId'
     | '/projects'
-    | '/settings'
-    | '/files/$projectId'
-    | '/shells/$projectId'
-    | '/source-control/$projectId'
-    | '/shells/$projectId/$shellId'
-    | '/shells/$projectId/'
-    | '/settings'
-    | '/$threadId'
     | '/settings/archived'
     | '/settings/general'
     | '/files/$projectId'

@@ -210,6 +210,7 @@ const OrchestrationNotificationLayerLive = Layer.effectDiscard(
 const RuntimeServicesLive = Layer.empty.pipe(
   Layer.provideMerge(ServerRuntimeStartupLive),
   Layer.provideMerge(ReactorLayerLive),
+  Layer.provideMerge(OrchestrationNotificationLayerLive),
 
   // Core Services
   Layer.provideMerge(CheckpointingLayerLive),
@@ -224,7 +225,6 @@ const RuntimeServicesLive = Layer.empty.pipe(
   Layer.provideMerge(TelegramNotificationsLive),
   Layer.provideMerge(WorkspaceLayerLive),
   Layer.provideMerge(ProjectFaviconResolverLive),
-  Layer.provideMerge(OrchestrationNotificationLayerLive),
 
   // Misc.
   Layer.provideMerge(AnalyticsServiceLayerLive),
